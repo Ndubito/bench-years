@@ -7,6 +7,7 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 add_executable(bench
   src/main.cpp
+  src/algo_demo.cpp
   src/fb.cpp
   src/raster.cpp
   src/render.cpp

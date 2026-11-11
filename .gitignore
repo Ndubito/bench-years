@@ -1,2 +1,5 @@
 build/
 *.o
+bench
+bench.exe
+out/*.ppm
