@@ -32,8 +32,13 @@ The program prints `WARNING: placeholder rasterizer in use` while `src/raster.cp
 ## Remaining (update daily)
 
 - [ ] B: Bresenham line, midpoint circle, scanline fill, Bezier (replace placeholders)
-- [ ] C: Mat3 operations and matrix stack
+- [x] C: Mat3 operations and matrix stack
 - [ ] C: two-bone IK, seated and walking figures
 - [ ] D: environment still, then scenes 1 to 8
 - [ ] E: importer for `docs/SCHEMA.md` frames in Blender
 - [ ] A: timeline controller and leaf gust transition
+
+## Changes
+
+- C: `vec.h` now has `Mat3::operator*`, `translate`, `rotate`, `scale` and a `MatrixStack` (push, pop, translate, rotate, scale, apply).
+- Tested with a two-segment swinging arm (`out/matrix_test.png`).
