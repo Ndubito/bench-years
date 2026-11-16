@@ -269,7 +269,7 @@ int main(int argc, char** argv) {
     std::vector<float> verts;
     for (const auto& sh : shapes) {
         float cr, cg, cb; colorFromRgba(sh.rgba, cr, cg, cb);
-        float z = sh.z * 4.0f;
+        float z = sh.z * 4.0f;  // To add more depth -> 8, to reduce the depth -> 2
         if (sh.kind == "disc") {
             float cx = sh.pts.empty() ? 0.f : sh.pts[0].x;
             float cy = sh.pts.empty() ? 0.f : sh.pts[0].y;

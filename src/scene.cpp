@@ -177,14 +177,22 @@ void addTree(Scene& v, const Env& e) {
 
 // ---------- lamp (right side, matching the reference scene) ----------
 void addLamp(Scene& v, const Env& e) {
-    const float x = 528.f, z = 5.f;
-    uint32_t metal = mix(rgb(52, 56, 64), rgb(10, 12, 20), e.dim);
-    addRect(v, x - 3, 178, x + 3, 298, metal, z);                                    // pole
-    addRect(v, x - 7, 296, x + 7, 300, metal, z);                                    // base
-    addSeg(v, {x - 0.5f, 180.f}, {513.f, 172.f}, 3.f, 3.f, metal, z);              // arm
-    addPoly(v, { {502.f, 171.f}, {524.f, 171.f}, {520.f, 181.f}, {506.f, 181.f} }, metal, z); // head
-    if (e.lampOn) addDisc(v, 513.f, 184.f, 62.f, withAlpha(rgb(255, 225, 140), 70), z - 0.1f); // glow
-    addDisc(v, 513.f, 183.f, 6.f, e.lampOn ? rgb(255, 240, 180) : rgb(205, 205, 195), z + 0.1f);
+    float z = 6.f;
+    const float  dz = 0.05f;
+    uint32_t wood = mix(rgb(47, 154, 119), rgb(10, 20, 30), e.dim);
+    uint32_t dark = mix(rgb(33, 108, 84),  rgb(10, 20, 30), e.dim);
+    uint32_t light = mix(wood, rgb(255, 255, 255), 0.18f);
+    for (const float x : {248.f, 388.f}) {
+        addPoly(v, { {x - 4.f, 266.f}, {x + 4.f, 266.f}, {x + 3.f, 298.f}, {x - 3.f, 298.f} }, dark, z); z += dz;
+        addRect(v, x - 7.f, 297.f, x + 7.f, 300.f, dark, z); 
+        addRect(v, x - 3.f, 224.f, x + 3.f, 268.f, dark, z);  
+    }
+    for (const float y : {226.f, 236.f, 246.f}) {
+        addRect(v, 238.f, y, 402.f, y + 7.f, wood, z); z += dz;
+    }
+    addPoly(v, { {232.f, 265.f}, {408.f, 265.f}, {410.f, 270.f}, {230.f, 270.f} }, light, z); z += dz; // seat front
+    addRect(v, 230.f, 270.f, 410.f, 276.f, wood, z); z += dz;           // seat
+    if (e.plaque) addRect(v, 360.f, 237.f, 380.f, 243.f, rgb(212, 184, 92), z);
 }
 
 // ---------- bench (centered, no longer crossing the path) ----------
