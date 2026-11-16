@@ -13,4 +13,8 @@ add_executable(bench
   src/render.cpp
   src/scene.cpp
   src/export_json.cpp)
-target_compile_options(bench PRIVATE -Wall -Wextra)
+if(MSVC)
+    target_compile_options(bench PRIVATE /W4)
+else()
+    target_compile_options(bench PRIVATE -Wall -Wextra)
+endif()
