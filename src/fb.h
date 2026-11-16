@@ -26,14 +26,14 @@ void putAlpha(int x, int y, uint32_t c) {
     unsigned int invAlpha = 255 - alpha;
 
     // Extract foreground RGB
-    unsigned int fr = (c >> 16) & 255;
+    unsigned int fr = c & 255;
     unsigned int fg = (c >> 8) & 255;
-    unsigned int fb = c & 255;
+    unsigned int fb = (c >> 16) & 255;
 
     // Extract background RGB
-    unsigned int br = (bg >> 16) & 255;
+    unsigned int br = bg & 255;
     unsigned int bgc = (bg >> 8) & 255;
-    unsigned int bb = bg & 255;
+    unsigned int bb = (bg >> 16) & 255;
 
     // Blend the colour channels
     unsigned int r = (fr * alpha + br * invAlpha + 127) / 255;
@@ -42,7 +42,7 @@ void putAlpha(int x, int y, uint32_t c) {
 
     // Store the blended pixel (opaque result)
     px[size_t(y) * w + x] =
-        0xFF000000u | (r << 16) | (g << 8) | b;
+        0xFF000000u | (b << 16) | (g << 8) | r;
 }
 
     bool savePPM(const std::string& path) const;   // binary P6, no external libraries

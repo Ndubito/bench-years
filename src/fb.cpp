@@ -8,10 +8,11 @@ bool Framebuffer::savePPM(const std::string& path) const {
     std::fprintf(f, "P6\n%d %d\n255\n", w, h);
     for (uint32_t c : px) {
         unsigned char rgb[3] = {
-                            (unsigned char)((c >> 16) & 255), // Red
-                            (unsigned char)((c >> 8) & 255),  // Green
-                            (unsigned char)(c & 255)          // Blue
-};
+                        (unsigned char)(c & 255),          // Red
+                        (unsigned char)((c >> 8) & 255),   // Green
+                        (unsigned char)((c >> 16) & 255)   // Blue
+        };  
+
         std::fwrite(rgb, 1, 3, f);
     }
     std::fclose(f);

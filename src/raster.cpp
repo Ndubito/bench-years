@@ -8,10 +8,7 @@
 #include <cmath>
 #include <cstdio>
 
-static void warn() {
-    static bool shown = false;
-    if (!shown) { std::fprintf(stderr, "WARNING: placeholder rasterizer in use (src/raster.cpp)\n"); shown = true; }
-}
+
 
 void drawLine(Framebuffer& fb, int x0, int y0, int x1, int y1, uint32_t c) {
 
