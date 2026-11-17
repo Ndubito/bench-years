@@ -98,7 +98,7 @@ const Env& envFor(int scene) {
       /*6 the passing     */ { rgb(110,85,140),  rgb(240,150,110), rgb(255,165,95),  rgb(95,80,100),   rgb(95,100,62),  rgb(150,90,40),  rgb(80,60,45),  2.95f, 1.00f, 0.0f, 0.30f, true,  false },
       /*7 epilogue, night */ { rgb(14,20,52),    rgb(42,52,92),    rgb(225,230,245), rgb(28,34,62),    rgb(30,48,46),   rgb(80,70,40),   rgb(60,48,40),  1.90f, 1.00f, 0.0f, 0.55f, true,  true  },
     };
-    return table[std::clamp(scene, 0, 7)];
+    return table[std::min(std::max(scene, 0), 7)];
 }
 
 // ---------- sky and sun ----------
@@ -175,8 +175,21 @@ void addTree(Scene& v, const Env& e) {
     branch(v, e, { 126.f, 300.f }, 0.f, 25.f + 55.f * e.tree, 4.f + 11.f * e.tree, depth, 1);
 }
 
-// ---------- lamp (right side, matching the reference scene) ----------
+// ---------- lamp (right side) ----------
 void addLamp(Scene& v, const Env& e) {
+    const float x = 528.f, z = 5.f;
+    uint32_t metal = mix(rgb(52, 56, 64), rgb(10, 12, 20), e.dim);
+    addRect(v, x - 3, 178, x + 3, 298, metal, z);                                    
+    addRect(v, x - 7, 296, x + 7, 300, metal, z);                                    
+    addSeg(v, {x - 0.5f, 180.f}, {513.f, 172.f}, 3.f, 3.f, metal, z);              
+    addPoly(v, { {502.f, 171.f}, {524.f, 171.f}, {520.f, 181.f}, {506.f, 181.f} }, metal, z); 
+    if (e.lampOn) addDisc(v, 513.f, 184.f, 62.f, withAlpha(rgb(255, 225, 140), 70), z - 0.1f); 
+    addDisc(v, 513.f, 183.f, 6.f, e.lampOn ? rgb(255, 240, 180) : rgb(205, 205, 195), z + 0.1f);
+ 
+}
+
+// ---------- bench (centered) ----------
+void addBench(Scene& v, const Env& e) {
     float z = 6.f;
     const float  dz = 0.05f;
     uint32_t wood = mix(rgb(47, 154, 119), rgb(10, 20, 30), e.dim);
@@ -193,27 +206,9 @@ void addLamp(Scene& v, const Env& e) {
     addPoly(v, { {232.f, 265.f}, {408.f, 265.f}, {410.f, 270.f}, {230.f, 270.f} }, light, z); z += dz; // seat front
     addRect(v, 230.f, 270.f, 410.f, 276.f, wood, z); z += dz;           // seat
     if (e.plaque) addRect(v, 360.f, 237.f, 380.f, 243.f, rgb(212, 184, 92), z);
-}
 
-// ---------- bench (centered, no longer crossing the path) ----------
-void addBench(Scene& v, const Env& e) {
-    const float z = 6.f;
-    uint32_t wood = mix(rgb(47, 154, 119), rgb(10, 20, 30), e.dim);
-    uint32_t dark = mix(rgb(33, 108, 84),  rgb(10, 20, 30), e.dim);
-    uint32_t light = mix(wood, rgb(255, 255, 255), 0.18f);
-    for (const float x : {248.f, 388.f}) {
-        addPoly(v, { {x - 4.f, 266.f}, {x + 4.f, 266.f}, {x + 3.f, 298.f}, {x - 3.f, 298.f} }, dark, z); // legs
-        addRect(v, x - 7.f, 297.f, x + 7.f, 300.f, dark, z);   // feet
-        addRect(v, x - 3.f, 224.f, x + 3.f, 268.f, dark, z);   // back posts
-    }
-    for (const float y : {226.f, 236.f, 246.f})
-        addRect(v, 238.f, y, 402.f, y + 7.f, wood, z);          // back slats
-    addPoly(v, { {232.f, 265.f}, {408.f, 265.f}, {410.f, 270.f}, {230.f, 270.f} }, light, z); // seat front
-    addRect(v, 230.f, 270.f, 410.f, 276.f, wood, z);          // seat
-    if (e.plaque) addRect(v, 360.f, 237.f, 380.f, 243.f, rgb(212, 184, 92), z + 0.1f);
 }
-
-} // namespace
+}
 
 std::vector<Shape> buildScene(int scene, float t) {
     (void)t;
