@@ -8,6 +8,12 @@
 #include <cmath>
 #include <cstdio>
 
+// Opaque colours go straight in; colours with alpha below 255 blend with what is already there.
+static inline void plot(Framebuffer& fb, int x, int y, uint32_t c) {
+    if ((c >> 24) == 255u) fb.put(x, y, c);
+    else fb.putAlpha(x, y, c);
+}
+
 
 
 void drawLine(Framebuffer& fb, int x0, int y0, int x1, int y1, uint32_t c) {
@@ -24,7 +30,7 @@ void drawLine(Framebuffer& fb, int x0, int y0, int x1, int y1, uint32_t c) {
     while (true) {
 
         // Colour the current pixel
-        fb.put(x0, y0, c);
+        plot(fb, x0, y0, c);
 
         // Stop when we reach the endpoint
         if (x0 == x1 && y0 == y1)
@@ -80,25 +86,21 @@ void drawCircle(Framebuffer& fb, int cx, int cy, int r, uint32_t c) {
 }
 
 void fillDisc(Framebuffer& fb, int cx, int cy, int r, uint32_t c) {
-      // midpoint circle driving horizontal spans
+    // Midpoint circle driving horizontal spans.
+    // Pass 1 records the half-width of every row from the centre down (0..r);
+    // pass 2 draws each row exactly once. Drawing a row twice is invisible with
+    // opaque colours but doubles the blend with transparent ones.
     if (r < 0) return;
 
+    std::vector<int> half(size_t(r) + 1, -1);
     int x = 0;
     int y = r;
     int p = 1 - r;
 
     while (x <= y) {
-
-        // Draw horizontal spans on all eight symmetric sections
-        for (int i = cx - x; i <= cx + x; i++) {
-            fb.put(i, cy + y, c);
-            fb.put(i, cy - y, c);
-        }
-
-        for (int i = cx - y; i <= cx + y; i++) {
-            fb.put(i, cy + x, c);
-            fb.put(i, cy - x, c);
-        }
+        // the eight symmetric points give two rows per step: dy = y (width x) and dy = x (width y)
+        half[size_t(y)] = std::max(half[size_t(y)], x);
+        half[size_t(x)] = std::max(half[size_t(x)], y);
 
         x++;
 
@@ -111,6 +113,14 @@ void fillDisc(Framebuffer& fb, int cx, int cy, int r, uint32_t c) {
         }
     }
 
+    for (int dy = 0; dy <= r; dy++) {
+        int w = half[size_t(dy)];
+        if (w < 0) continue;
+        for (int i = cx - w; i <= cx + w; i++) {
+            plot(fb, i, cy + dy, c);
+            if (dy != 0) plot(fb, i, cy - dy, c);   // row 0 is the centre row: draw it once
+        }
+    }
 }
 
 void fillPoly(Framebuffer& fb, const std::vector<Vec2>& p, uint32_t c) {
@@ -166,7 +176,7 @@ void fillPoly(Framebuffer& fb, const std::vector<Vec2>& p, uint32_t c) {
                                 int(std::ceil(intersections[i + 1] - 0.5f)) - 1);
 
             for (int x = startX; x <= endX; x++) {
-                fb.put(x, y, c);
+                plot(fb, x, y, c);
             }
         }
     }
