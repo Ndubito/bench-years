@@ -3,4 +3,9 @@ build/
 bench
 bench.exe
 out/*.ppm
-out/*.mp4
+out/frames/
+out/blender/
+out/final/
+out/*.png
+*.mp4
+*.log

@@ -2,9 +2,11 @@
 // usage: bench [scene 0-7] [t seconds] [out.ppm] [--json out.json]
 //        bench --algos out/cp2     (four algorithm test images)
 //        bench --film 12.5 out.ppm  (one frame of the whole film at 12.5 s)
-//        bench --frames out/f 24 [from] [to]
+//        bench --frames out/f 24 [from] [to] [--json]
 //                                   (numbered frames f_0000.ppm ... at 24 fps,
-//                                    optionally only from..to seconds)
+//                                    optionally only from..to seconds;
+//                                    --json also writes f_NNNN.json for every
+//                                    scene frame, none for gust frames)
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -37,22 +39,41 @@ int main(int argc, char** argv) {
         std::printf("wrote %s (T=%.2f: %s scene %d, t=%.2f)\n", argv[3], T, f.gust ? "gust from" : "", f.scene, f.t);
         return 0;
     }
-    if (argc > 3 && !std::strcmp(argv[1], "--frames")) {         // bench --frames out/f 24 [from] [to]
+    if (argc > 3 && !std::strcmp(argv[1], "--frames")) {         // bench --frames out/f 24 [from] [to] [--json]
+        bool json = false;
+        const char* pos[2] = { nullptr, nullptr };              // optional from, to
+        int np = 0;
+        for (int i = 4; i < argc; i++) {
+            if (!std::strcmp(argv[i], "--json")) json = true;
+            else if (np < 2) pos[np++] = argv[i];
+        }
         std::string base = argv[2];
         int fps = std::atoi(argv[3]);
         if (fps <= 0) { std::fprintf(stderr, "fps must be above 0\n"); return 1; }
-        float from = argc > 4 ? float(std::atof(argv[4])) : 0.f;
-        float to   = argc > 5 ? float(std::atof(argv[5])) : filmLength();
+        float from = pos[0] ? float(std::atof(pos[0])) : 0.f;
+        float to   = pos[1] ? float(std::atof(pos[1])) : filmLength();
         int first = int(std::ceil(from * fps)), last = int(std::ceil(to * fps)) - 1;
+        int jsonCount = 0;
         Framebuffer fb(kWidth, kHeight);
         for (int n = first; n <= last; n++) {
-            renderFilm(fb, float(n) / fps);
+            float T = float(n) / fps;
+            int k = n - first;                                   // numbered from 0 for ffmpeg
+            renderFilm(fb, T);
             char name[32];
-            std::sprintf(name, "_%04d.ppm", n - first);   // numbered from 0 for ffmpeg
+            std::sprintf(name, "_%04d.ppm", k);
             if (!fb.savePPM(base + name)) { std::fprintf(stderr, "cannot write %s%s\n", base.c_str(), name); return 1; }
-            if ((n - first) % fps == 0) std::printf("frame %d of %d (%.0f s)\n", n - first, last - first + 1, float(n) / fps);
+            FilmTime ft = filmAt(T);
+            if (json && !ft.gust) {                              // gust frames have no shape list: they mix two images
+                std::sprintf(name, "_%04d.json", k);
+                if (!writeFrameJSON(base + name, buildScene(ft.scene, ft.t), ft.scene, k, ft.t)) {
+                    std::fprintf(stderr, "cannot write %s%s\n", base.c_str(), name); return 1;
+                }
+                jsonCount++;
+            }
+            if (k % fps == 0) std::printf("frame %d of %d (%.0f s)\n", k, last - first + 1, T);
         }
         std::printf("wrote %d frames: %s_0000.ppm ...\n", last - first + 1, base.c_str());
+        if (json) std::printf("wrote %d JSON files (gust frames have none)\n", jsonCount);
         return 0;
     }
     int scene = argc > 1 ? std::atoi(argv[1]) : 0;
