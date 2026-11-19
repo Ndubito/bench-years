@@ -29,7 +29,7 @@ struct Pen {
         Shape& s = out.back();
         s.kind = k;
         s.rgba = withAlpha(col, alpha);
-        s.z = z + 0.001f * float(n++);
+        s.z = z + 0.02f * float(n++);
         return s;
     }
     void poly(const std::vector<Vec2>& p, uint32_t col) { add(Kind::Poly, col).pts = p; }
