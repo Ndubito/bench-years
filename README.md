@@ -12,6 +12,7 @@ Windows (Git Bash or MSYS2 UCRT64), Linux or Mac:
     ./bench 0 0 out/scene0.ppm --json out/s0.json the same, plus its shape list for Blender
     ./bench --algos out/cp2                       the four algorithm test images
     ./bench --film 7.2 out/gust.ppm               one frame of the whole film at 7.2 s
+    mkdir -p out/frames                           the frames folder must exist first
     ./bench --frames out/frames/f 24              every frame of the film at 24 fps
     ./bench --frames out/frames/f 24 40 52        only 40 s to 52 s
     ./bench --frames out/frames/f 24 --json       also a JSON per scene frame (none for gust frames)
@@ -20,7 +21,7 @@ The whole film at 24 fps is about 1,680 frames and 1.1 GB of `.ppm` files. Delet
 
 ## Making the film
 
-1. `./bench --frames out/frames/f 24 --json`
+1. `mkdir -p out/frames out/blender`, then `./bench --frames out/frames/f 24 --json`
 2. Blender (Githinji): render each `out/frames/f_NNNN.json` to `out/blender/f_NNNN.png` with the same number.
 3. `bash tools/assemble_film.sh` joins them into `out/film.mp4`. Frames without a Blender PNG, including every gust frame, use the C++ image.
 
