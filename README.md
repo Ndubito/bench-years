@@ -33,7 +33,7 @@ The program prints `WARNING: placeholder rasterizer in use` while `src/raster.cp
 
 - [ ] B: Bresenham line, midpoint circle, scanline fill, Bezier (replace placeholders)
 - [x] C: Mat3 operations and matrix stack
-- [ ] C: two-bone IK, seated and walking figures
+- [x] C: two-bone IK, seated and walking figures
 - [ ] D: environment still, then scenes 1 to 8
 - [ ] E: importer for `docs/SCHEMA.md` frames in Blender
 - [ ] A: timeline controller and leaf gust transition
