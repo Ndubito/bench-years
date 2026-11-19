@@ -3,3 +3,4 @@ build/
 bench
 bench.exe
 out/*.ppm
+out/*.mp4
