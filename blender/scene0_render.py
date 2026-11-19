@@ -2,7 +2,7 @@ import bpy, json, math, sys, os
 
 
 JSON_PATH   = "out/scene0.json"
-OUT_PNG     = "/scene0_render.png"
+OUT_PNG     = "out/scene0_render.png"
 COLOR_ORDER = "ABGR"
 Z_STEP      = 0.01
 LINE_WIDTH  = 1.0       
