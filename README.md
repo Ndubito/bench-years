@@ -8,8 +8,6 @@ Park bench life story. Pure C++ rasterizer first, then OpenGL viewer, then Blend
     cmake --build build
     ./build/bench 0 0 out/scene0.ppm --json out/scene0.json
 
-The program prints `WARNING: placeholder rasterizer in use` while `src/raster.cpp` still holds the naive placeholders. That warning must be gone before CP2 is submitted.
-
 ## Ownership
 
 | Member | Owns |
@@ -31,7 +29,7 @@ The program prints `WARNING: placeholder rasterizer in use` while `src/raster.cp
 
 ## Remaining (update daily)
 
-- [ ] B: Bresenham line, midpoint circle, scanline fill, Bezier (replace placeholders)
+- [x] B: Bresenham line, midpoint circle, scanline fill, Bezier
 - [x] C: Mat3 operations and matrix stack
 - [ ] C: two-bone IK, seated and walking figures
 - [ ] D: environment still, then scenes 1 to 8

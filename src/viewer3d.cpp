@@ -1,0 +1,734 @@
+#include <glad/gl.h>
+#define GLFW_INCLUDE_NONE
+#include <GLFW/glfw3.h>
+
+#include <algorithm>
+#include <array>
+#include <cmath>
+#include <cstddef>
+#include <cstdint>
+#include <fstream>
+#include <iostream>
+#include <string>
+#include <vector>
+#include "scene_params.h"
+
+namespace {
+
+struct Vec3 {
+    float x, y, z;
+};
+
+struct Color {
+    float r, g, b;
+};
+
+struct Vertex {
+    Vec3 position;
+    Vec3 normal;
+    Color color;
+};
+
+struct SceneLook {
+    Color sky, ground, hill, leaves, trunk;
+    float treeSize, leafDensity, dryness, benchWear;
+    float ambient, sunlight, lampPower;
+    int flowers, dirtPatches, grassTufts;
+};
+
+constexpr Color rgb(int r, int g, int b) {
+    return {r / 255.f, g / 255.f, b / 255.f};
+}
+
+Color mix(Color a, Color b, float t) {
+    return {a.r + (b.r - a.r) * t,
+            a.g + (b.g - a.g) * t,
+            a.b + (b.b - a.b) * t};
+}
+
+Vec3 operator+(Vec3 a, Vec3 b) { return {a.x + b.x, a.y + b.y, a.z + b.z}; }
+Vec3 operator-(Vec3 a, Vec3 b) { return {a.x - b.x, a.y - b.y, a.z - b.z}; }
+Vec3 operator*(Vec3 a, float s) { return {a.x * s, a.y * s, a.z * s}; }
+Vec3 operator/(Vec3 a, float s) { return {a.x / s, a.y / s, a.z / s}; }
+float dot(Vec3 a, Vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+Vec3 cross(Vec3 a, Vec3 b) {
+    return {a.y * b.z - a.z * b.y,
+            a.z * b.x - a.x * b.z,
+            a.x * b.y - a.y * b.x};
+}
+Vec3 normalized(Vec3 v) {
+    const float length = std::sqrt(dot(v, v));
+    return length > 1e-6f ? v / length : Vec3{0.f, 1.f, 0.f};
+}
+
+float random01(int seed) {
+    uint32_t h = uint32_t(seed) * 2654435761u;
+    h ^= h >> 15;
+    h *= 2246822519u;
+    h ^= h >> 13;
+    return float(h & 0xffffu) / 65535.f;
+}
+
+const std::array<SceneLook, 8> kScenes = [] {
+    std::array<SceneLook, 8> scenes{};
+    for (size_t i = 0; i < scenes.size(); ++i) {
+        const SceneParams& p = kSceneParams[i];
+        scenes[i] = {
+            rgb(p.skyTop.r,p.skyTop.g,p.skyTop.b),
+            rgb(p.ground.r,p.ground.g,p.ground.b),
+            rgb(p.hill.r,p.hill.g,p.hill.b),
+            rgb(p.leaves.r,p.leaves.g,p.leaves.b),
+            rgb(p.trunk.r,p.trunk.g,p.trunk.b),
+            p.treeSize,p.leafDensity,p.darkness,p.benchWear,
+            p.ambient,p.sunlight,p.lampPower,
+            p.flowers,p.dirtPatches,p.grassTufts
+        };
+    }
+    return scenes;
+}();
+
+struct Mesh {
+    std::vector<Vertex> vertices;
+
+    void triangle(Vec3 a, Vec3 b, Vec3 c, Color color, Vec3 normal) {
+        normal = normalized(normal);
+        vertices.push_back({a, normal, color});
+        vertices.push_back({b, normal, color});
+        vertices.push_back({c, normal, color});
+    }
+
+    void quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, Color color, Vec3 normal) {
+        triangle(a, b, c, color, normal);
+        triangle(a, c, d, color, normal);
+    }
+
+    void box(Vec3 center, Vec3 size, Color color) {
+        const Vec3 h = size * .5f;
+        const float x0 = center.x - h.x, x1 = center.x + h.x;
+        const float y0 = center.y - h.y, y1 = center.y + h.y;
+        const float z0 = center.z - h.z, z1 = center.z + h.z;
+        quad({x0,y1,z0}, {x0,y1,z1}, {x1,y1,z1}, {x1,y1,z0}, color, {0,1,0});
+        quad({x0,y0,z1}, {x0,y0,z0}, {x1,y0,z0}, {x1,y0,z1}, color, {0,-1,0});
+        quad({x0,y0,z1}, {x1,y0,z1}, {x1,y1,z1}, {x0,y1,z1}, color, {0,0,1});
+        quad({x1,y0,z0}, {x0,y0,z0}, {x0,y1,z0}, {x1,y1,z0}, color, {0,0,-1});
+        quad({x0,y0,z0}, {x0,y0,z1}, {x0,y1,z1}, {x0,y1,z0}, color, {-1,0,0});
+        quad({x1,y0,z1}, {x1,y0,z0}, {x1,y1,z0}, {x1,y1,z1}, color, {1,0,0});
+    }
+
+    void cylinder(Vec3 a, Vec3 b, float radiusA, float radiusB, Color color, int sides = 16) {
+        const Vec3 axis = normalized(b - a);
+        const Vec3 reference = std::abs(axis.y) < .9f ? Vec3{0,1,0} : Vec3{1,0,0};
+        const Vec3 u = normalized(cross(axis, reference));
+        const Vec3 v = cross(axis, u);
+        constexpr float tau = 6.28318530718f;
+        for (int i = 0; i < sides; ++i) {
+            const float a0 = tau * float(i) / sides;
+            const float a1 = tau * float(i + 1) / sides;
+            const Vec3 n0 = u * std::cos(a0) + v * std::sin(a0);
+            const Vec3 n1 = u * std::cos(a1) + v * std::sin(a1);
+            const Vec3 p0 = a + n0 * radiusA, p1 = a + n1 * radiusA;
+            const Vec3 q0 = b + n0 * radiusB, q1 = b + n1 * radiusB;
+            triangle(p0, p1, q1, color, n0 + n1);
+            triangle(p0, q1, q0, color, n0 + n1);
+            triangle(a, p1, p0, color, axis * -1.f);
+            triangle(b, q0, q1, color, axis);
+        }
+    }
+
+    void sphere(Vec3 center, float radius, Color color, int slices = 16, int stacks = 12) {
+        constexpr float pi = 3.14159265359f;
+        constexpr float tau = 6.28318530718f;
+        for (int row = 0; row < stacks; ++row) {
+            const float p0 = -pi * .5f + pi * float(row) / stacks;
+            const float p1 = -pi * .5f + pi * float(row + 1) / stacks;
+            for (int col = 0; col < slices; ++col) {
+                const float t0 = tau * float(col) / slices;
+                const float t1 = tau * float(col + 1) / slices;
+                const auto point = [center, radius](float p, float t) {
+                    return Vec3{center.x + radius * std::cos(p) * std::cos(t),
+                                center.y + radius * std::sin(p),
+                                center.z + radius * std::cos(p) * std::sin(t)};
+                };
+                const Vec3 n00{std::cos(p0)*std::cos(t0), std::sin(p0), std::cos(p0)*std::sin(t0)};
+                const Vec3 n01{std::cos(p0)*std::cos(t1), std::sin(p0), std::cos(p0)*std::sin(t1)};
+                const Vec3 n10{std::cos(p1)*std::cos(t0), std::sin(p1), std::cos(p1)*std::sin(t0)};
+                const Vec3 n11{std::cos(p1)*std::cos(t1), std::sin(p1), std::cos(p1)*std::sin(t1)};
+                const Vec3 a = point(p0, t0), b = point(p0, t1);
+                const Vec3 c = point(p1, t1), d = point(p1, t0);
+                triangle(a, b, c, color, n00 + n01 + n11);
+                triangle(a, c, d, color, n00 + n11 + n10);
+            }
+        }
+    }
+};
+
+void addHills(Mesh& mesh, const SceneLook& look) {
+    constexpr int segments = 64;
+    for (int hill = 0; hill < 2; ++hill) {
+        const float z = -10.0f + hill * .45f;
+        const Color color = hill == 0
+            ? mix(look.hill, rgb(205,220,205), .22f)
+            : mix(look.hill, look.ground, .52f);
+        for (int i = 0; i < segments; ++i) {
+            const float x0 = -20.f + 40.f * float(i) / segments;
+            const float x1 = -20.f + 40.f * float(i + 1) / segments;
+            const float haze = hill == 0 ? .58f : .32f;
+            const float y0 = 1.15f + (.62f + hill * .12f) *
+                            std::sin((x0 + hill * 2.2f) * .48f);
+            const float y1 = 1.15f + (.62f + hill * .12f) *
+                            std::sin((x1 + hill * 2.2f) * .48f);
+            const Color hazy = mix(color, rgb(205,218,216), haze);
+            mesh.quad({x0,0,z}, {x0,y0,z}, {x1,y1,z}, {x1,0,z}, hazy, {0,0,1});
+        }
+    }
+}
+
+void addPath(Mesh& mesh, Color lawn) {
+    const Color path = mix(lawn, rgb(205,185,145), .72f);
+    constexpr int segments = 64;
+    for (int i = 0; i < segments; ++i) {
+        const float x0 = -11.f + 22.f * float(i) / segments;
+        const float x1 = -11.f + 22.f * float(i + 1) / segments;
+        const float z0 = 3.0f + .32f * std::sin(x0 * .42f);
+        const float z1 = 3.0f + .32f * std::sin(x1 * .42f);
+        mesh.quad({x0,.025f,z0-.75f}, {x1,.025f,z1-.75f},
+                  {x1,.025f,z1+.75f}, {x0,.025f,z0+.75f}, path, {0,1,0});
+        const Color edge = mix(path, rgb(92,78,52), .28f);
+        mesh.quad({x0,.028f,z0-.86f}, {x1,.028f,z1-.86f},
+                  {x1,.028f,z1-.75f}, {x0,.028f,z0-.75f}, edge, {0,1,0});
+        mesh.quad({x0,.028f,z0+.75f}, {x1,.028f,z1+.75f},
+                  {x1,.028f,z1+.86f}, {x0,.028f,z0+.86f}, edge, {0,1,0});
+    }
+}
+
+void addBranch(Mesh& mesh, Vec3 start, float angle, float length, float radius,
+               int depth, int id, const SceneLook& look) {
+    Vec3 previous = start;
+    const int segments = 3;
+    Vec3 end = start;
+    for (int segment = 1; segment <= segments; ++segment) {
+        const float segmentLength = length / segments;
+        const float bend = .035f * std::sin((id + segment) * 1.7f);
+        const float segmentAngle = angle + bend * segment;
+        end = {start.x + std::sin(segmentAngle) * length * segment / segments,
+               start.y + std::cos(segmentAngle) * length * segment / segments,
+               start.z + std::sin(segmentAngle * 1.31f + id) * .045f};
+        mesh.cylinder(previous, end, radius * (1.f - float(segment - 1) / segments * .32f),
+                      radius * (1.f - float(segment) / segments * .32f),
+                      look.trunk, 8);
+        previous = end;
+    }
+    if (depth <= 1 && look.leafDensity > 0.f) {
+        const int clusters = 2 + int(7.f * look.leafDensity);
+        const float size = .14f + .13f * look.treeSize;
+        for (int i = 0; i < clusters; ++i) {
+            const int seed = id * 31 + i * 17;
+            const Vec3 offset{(random01(seed + 1) - .5f) * .58f,
+                              (random01(seed + 3) - .5f) * .5f,
+                              (random01(seed + 5) - .5f) * .48f};
+            const Color leafColor = (id + i) % 4 == 0
+                ? mix(look.leaves, rgb(235,190,75), .32f)
+                : look.leaves;
+            const float sizeScale = .72f + .32f * random01(seed + 7);
+            mesh.sphere(end + offset, size * sizeScale, leafColor, 14, 10);
+        }
+    }
+    if (depth <= 0) return;
+    const float spread = .48f + .12f * random01(id * 23 + depth);
+    addBranch(mesh, end, angle - spread, length * .72f, radius * .68f, depth - 1, id * 2, look);
+    addBranch(mesh, end, angle + spread, length * .72f, radius * .68f, depth - 1, id * 2 + 1, look);
+}
+
+void addTree(Mesh& mesh, const SceneLook& look) {
+    const Vec3 root{-5.25f, .06f, -.55f};
+    const float scale = .50f + .68f * look.treeSize;
+    const float trunkLength = 1.45f + .85f * look.treeSize;
+    const int depth = 1 + int(2.f * look.treeSize + .5f);
+    addBranch(mesh, root, 0.f, trunkLength, .16f * scale, depth, 1, look);
+    mesh.cylinder(root, root + Vec3{-.42f, .04f, 0}, .12f, .025f, look.trunk, 8);
+    mesh.cylinder(root, root + Vec3{.43f, .04f, .05f}, .12f, .025f, look.trunk, 8);
+}
+
+Color benchWood(const SceneLook& look) {
+    return mix(rgb(47,154,119), rgb(12,18,24), look.ambient < .3f ? .58f : 0.f);
+}
+
+void addBench(Mesh& mesh, const SceneLook& look, int scene) {
+    const float seatY = .82f;
+    const float frontZ = .42f;
+    const Color wood = benchWood(look);
+    const Color metal = mix(rgb(42,48,52), rgb(10,12,17), look.ambient < .3f ? .55f : 0.f);
+    for (float x : {-1.58f, 1.58f}) {
+        mesh.cylinder({x,.08f,frontZ}, {x,seatY,frontZ}, .075f, .055f, metal);
+        mesh.cylinder({x,.08f,-.42f}, {x,seatY,-.42f}, .075f, .055f, metal);
+        mesh.cylinder({x,.72f,-.42f}, {x,1.72f,-.42f}, .055f, .045f, metal);
+    }
+    for (float z : {-.31f, .0f, .31f})
+        mesh.box({0,seatY,z}, {4.15f,.14f,.22f}, wood);
+    for (float y : {1.05f, 1.30f, 1.55f})
+        mesh.box({0,y,-.43f}, {4.2f,.17f,.12f}, wood);
+    mesh.box({0,.69f,-.03f}, {3.55f,.09f,.78f}, metal);
+
+    const int patches = std::max(0, int(std::ceil(look.benchWear * 12.f)));
+    const Color worn = mix(rgb(135,91,55), rgb(34,30,28), look.ambient < .3f ? .5f : 0.f);
+    for (int i = 0; i < patches; ++i) {
+        const float x = -1.78f + 3.56f * random01(scene * 97 + i * 31 + 1);
+        const float z = -.25f + .5f * random01(scene * 101 + i * 37 + 3);
+        mesh.box({x, seatY + .075f, z}, {.09f,.012f,.07f}, worn);
+    }
+    if (scene == 7) mesh.box({1.0f,1.31f,-.355f}, {.38f,.12f,.018f}, rgb(212,184,92));
+}
+
+void addLamp(Mesh& mesh, const SceneLook& look) {
+    const float x = 4.75f;
+    const Color metal = mix(rgb(48,52,59), rgb(11,14,20), look.ambient < .3f ? .55f : 0.f);
+    mesh.cylinder({x,.05f,-.18f}, {x,3.55f,-.18f}, .07f, .045f, metal, 12);
+    mesh.cylinder({x,.02f,-.18f}, {x,.14f,-.18f}, .26f, .26f, metal, 16);
+    mesh.box({x,.13f,-.18f}, {.82f,.09f,.62f}, metal);
+    mesh.cylinder({x,3.55f,-.18f}, {x,3.68f,-.18f}, .055f, .055f, metal, 10);
+    mesh.cylinder({x,3.68f,-.18f}, {x-.30f,3.68f,-.18f}, .055f, .045f, metal, 10);
+    mesh.cylinder({x-.30f,3.68f,-.18f}, {x-.42f,3.50f,-.52f}, .045f, .035f, metal, 10);
+    mesh.cylinder({x-.42f,3.50f,-.52f}, {x-.42f,3.38f,-.72f}, .035f, .025f, metal, 10);
+    mesh.sphere({x-.42f,3.43f,-.72f}, .23f, metal, 14, 8);
+    mesh.box({x-.42f,3.33f,-.72f}, {.48f,.10f,.36f}, metal);
+    mesh.sphere({x-.42f,3.26f,-.72f}, .12f,
+                look.lampPower > 0.f ? rgb(255,235,170) : rgb(185,188,183), 10, 6);
+}
+
+void addGrass(Mesh& mesh, const SceneLook& look, int scene) {
+    const Color dryGround = scene == 7 ? rgb(76,64,46) : rgb(201,164,88);
+    const Color ground = mix(look.ground, dryGround, look.dryness);
+    mesh.quad({-20,0,-10.0f}, {20,0,-10.0f}, {20,0,20.f}, {-20,0,20.f},
+              ground, {0,1,0});
+    const Color foreground = mix(ground, rgb(82,151,72), .10f);
+    mesh.quad({-20,.004f,7.0f}, {20,.004f,7.0f},
+              {20,.004f,16.f}, {-20,.004f,16.f}, foreground, {0,1,0});
+
+    for (int i = 0; i < look.dirtPatches; ++i) {
+        const float x = -9.f + 18.f * random01(1103 + i * 17);
+        const float z = i % 2 == 0
+            ? -6.4f + 8.3f * random01(1123 + i * 23)
+            : 4.2f + 9.5f * random01(1123 + i * 23);
+        const float rx = .2f + .36f * random01(1151 + i * 29);
+        const float rz = .08f + .13f * random01(1171 + i * 31);
+        const Color soil = (i % 2 == 0) ? rgb(117,84,53) : rgb(144,105,66);
+        constexpr int points = 10;
+        for (int p = 0; p < points; ++p) {
+            const float a0 = 6.2831853f * float(p) / points;
+            const float a1 = 6.2831853f * float(p + 1) / points;
+            const float r0 = .78f + .32f * random01(1201 + i * 37 + p);
+            const float r1 = .78f + .32f * random01(1223 + i * 41 + p + 1);
+            mesh.triangle({x,.012f,z},
+                          {x + std::cos(a0)*rx*r0,.012f,z + std::sin(a0)*rz*r0},
+                          {x + std::cos(a1)*rx*r1,.012f,z + std::sin(a1)*rz*r1},
+                          soil, {0,1,0});
+        }
+    }
+
+    const Color green = mix(look.ground, rgb(72,158,56), .42f);
+    const Color dry = scene == 7 ? rgb(135,107,67) : rgb(187,151,78);
+    const float grassHeight = scene < 2 ? .14f : scene < 4 ? .25f : scene < 6 ? .19f : .16f;
+    const auto addTuft = [&](float x, float z, float height, int seed) {
+        const Color color = mix(green, dry, look.dryness * (.7f + .3f * random01(seed + 11)));
+        const int blades = 3 + int(2.f * random01(seed + 19));
+        for (int blade = 0; blade < blades; ++blade) {
+            const float side = float(blade) - float(blades - 1) * .5f;
+            const Vec3 base{x + side * .025f, .018f, z};
+            const Vec3 tip{x + side * .055f + (random01(seed + blade * 23)-.5f)*.1f,
+                           .018f + height * (.7f + .3f * random01(seed + blade * 29 + 1)),
+                           z + (random01(seed + blade * 31 + 2)-.5f)*.12f};
+            mesh.triangle({base.x-.018f,base.y,base.z}, {base.x+.018f,base.y,base.z},
+                          tip, color, {0,0,1});
+        }
+    };
+    for (int i = 0; i < look.grassTufts; ++i) {
+        const float x = -9.5f + 19.f * random01(1301 + i * 13);
+        const float z = -6.8f + 8.7f * random01(1319 + i * 19);
+        const float height = grassHeight * (.75f + .5f * random01(1361 + i * 23));
+        addTuft(x, z, height, 1381 + i * 41);
+    }
+    for (int i = 0; i < look.grassTufts * 3 / 4; ++i) {
+        const float x = -11.f + 22.f * random01(1601 + i * 17);
+        const float z = 4.2f + 9.5f * random01(1621 + i * 23);
+        const float height = grassHeight * .42f * (.75f + .5f * random01(1641 + i * 29));
+        addTuft(x, z, height, 1663 + i * 43);
+    }
+
+    for (int i = 0; i < look.flowers; ++i) {
+        const float x = -8.8f + 17.6f * random01(1501 + i * 47);
+        const float z = -5.8f + 7.6f * random01(1523 + i * 53);
+        const float top = .38f + .12f * random01(1543 + i * 59);
+        mesh.cylinder({x,.02f,z}, {x,top,z}, .012f, .008f, rgb(58,112,42), 5);
+        const Color flower = (i % 3 == 0) ? rgb(255,242,207)
+                            : (i % 3 == 1) ? rgb(255,220,95)
+                                           : rgb(225,194,245);
+        mesh.sphere({x,top,z}, .045f, flower, 7, 5);
+        mesh.sphere({x,top+.018f,z}, .022f, rgb(245,174,49), 6, 4);
+    }
+}
+
+void addSky(Mesh& mesh, const SceneLook& look) {
+    const Color horizon = mix(look.sky, rgb(255,224,205), .48f);
+    const float z = -24.f;
+    constexpr int bands = 12;
+    for (int i = 0; i < bands; ++i) {
+        const float y0 = -5.f + 30.f * float(i) / bands;
+        const float y1 = -5.f + 30.f * float(i + 1) / bands;
+        const float t = float(i) / float(bands - 1);
+        const Color color = mix(horizon, look.sky, t);
+        mesh.quad({-40.f,y0,z}, {40.f,y0,z},
+                  {40.f,y1,z}, {-40.f,y1,z}, color, {0,0,1});
+    }
+}
+
+std::vector<Vertex> buildScene(int scene) {
+    const SceneLook& look = kScenes[size_t(scene)];
+    Mesh mesh;
+    addSky(mesh, look);
+    addHills(mesh, look);
+    addGrass(mesh, look, scene);
+    addPath(mesh, look.ground);
+    addTree(mesh, look);
+    addLamp(mesh, look);
+    addBench(mesh, look, scene);
+    const float angle = std::array<float,8>{.35f,.7f,1.1f,1.57f,2.05f,2.6f,2.95f,1.9f}[size_t(scene)];
+    const float sunX = -std::cos(angle) * 6.5f;
+    const float sunY = scene == 7 ? 5.8f : 2.5f + std::sin(angle) * 3.3f;
+    const Color sun = scene == 7 ? rgb(225,230,245) : rgb(255,224,145);
+    mesh.sphere({sunX,sunY,-7.25f}, .34f, sun, 16, 10);
+    return std::move(mesh.vertices);
+}
+
+using Mat4 = std::array<float,16>;
+
+Mat4 identity() {
+    return {1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1};
+}
+
+Mat4 multiply(const Mat4& a, const Mat4& b) {
+    Mat4 result{};
+    for (int col = 0; col < 4; ++col)
+        for (int row = 0; row < 4; ++row)
+            for (int k = 0; k < 4; ++k)
+                result[size_t(col*4+row)] += a[size_t(k*4+row)] * b[size_t(col*4+k)];
+    return result;
+}
+
+Mat4 perspective(float fov, float aspect, float nearPlane, float farPlane) {
+    const float f = 1.f / std::tan(fov * .5f);
+    Mat4 m{};
+    m[0] = f / aspect;
+    m[5] = f;
+    m[10] = (farPlane + nearPlane) / (nearPlane - farPlane);
+    m[11] = -1.f;
+    m[14] = (2.f * farPlane * nearPlane) / (nearPlane - farPlane);
+    return m;
+}
+
+Mat4 lookAt(Vec3 eye, Vec3 target, Vec3 up) {
+    const Vec3 forward = normalized(target - eye);
+    const Vec3 side = normalized(cross(forward, up));
+    const Vec3 correctedUp = cross(side, forward);
+    Mat4 m = identity();
+    m[0] = side.x;       m[4] = side.y;       m[8] = side.z;
+    m[1] = correctedUp.x;m[5] = correctedUp.y;m[9] = correctedUp.z;
+    m[2] = -forward.x;   m[6] = -forward.y;   m[10] = -forward.z;
+    m[12] = -dot(side, eye);
+    m[13] = -dot(correctedUp, eye);
+    m[14] = dot(forward, eye);
+    return m;
+}
+
+void renderFrame(GLFWwindow* window, GLuint program, GLuint vao, size_t vertexCount,
+                 int scene, float yaw, float pitch, float distance) {
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(window, &width, &height);
+    if (width <= 0 || height <= 0) return;
+    glViewport(0, 0, width, height);
+    const Color sky = kScenes[size_t(scene)].sky;
+    glClearColor(sky.r, sky.g, sky.b, 1.f);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glUseProgram(program);
+    const Vec3 target{0.f, 1.35f, -.8f};
+    const Vec3 eye{target.x + std::sin(yaw)*distance*std::cos(pitch),
+                   target.y + std::sin(pitch)*distance,
+                   target.z + std::cos(yaw)*distance*std::cos(pitch)};
+    const Mat4 view = lookAt(eye, target, {0,1,0});
+    const Mat4 projection = perspective(.785398f, float(width)/float(height), .1f, 80.f);
+    const Mat4 mvp = multiply(projection, view);
+    glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, mvp.data());
+    const SceneLook& look = kScenes[size_t(scene)];
+    glUniform3f(glGetUniformLocation(program, "uLampPosition"), 4.33f, 3.26f, -.72f);
+    glUniform1f(glGetUniformLocation(program, "uAmbient"), look.ambient);
+    glUniform1f(glGetUniformLocation(program, "uSunlight"), look.sunlight);
+    glUniform1f(glGetUniformLocation(program, "uLampPower"), look.lampPower);
+    glBindVertexArray(vao);
+    glDrawArrays(GL_TRIANGLES, 0, GLsizei(vertexCount));
+}
+
+GLuint compileShader(GLenum type, const char* source) {
+    const GLuint shader = glCreateShader(type);
+    glShaderSource(shader, 1, &source, nullptr);
+    glCompileShader(shader);
+    GLint success = GL_FALSE;
+    glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+    if (!success) {
+        GLint length = 0;
+        glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
+        std::vector<char> log(size_t(std::max(length, 1)));
+        glGetShaderInfoLog(shader, length, nullptr, log.data());
+        std::cerr << "Shader compilation failed: " << log.data() << '\n';
+        glDeleteShader(shader);
+        return 0;
+    }
+    return shader;
+}
+
+GLuint createProgram() {
+    constexpr const char* vertexSource = R"(
+        #version 330 core
+        layout (location = 0) in vec3 aPosition;
+        layout (location = 1) in vec3 aNormal;
+        layout (location = 2) in vec3 aColor;
+        uniform mat4 uMVP;
+        out vec3 vPosition;
+        out vec3 vNormal;
+        out vec3 vColor;
+        void main() {
+            vPosition = aPosition;
+            vNormal = aNormal;
+            vColor = aColor;
+            gl_Position = uMVP * vec4(aPosition, 1.0);
+        })";
+    constexpr const char* fragmentSource = R"(
+        #version 330 core
+        in vec3 vPosition;
+        in vec3 vNormal;
+        in vec3 vColor;
+        uniform vec3 uLampPosition;
+        uniform float uAmbient;
+        uniform float uSunlight;
+        uniform float uLampPower;
+        out vec4 FragColor;
+        void main() {
+            vec3 normal = normalize(vNormal);
+            vec3 sunDirection = normalize(vec3(-0.35, 0.85, 0.45));
+            float sun = max(dot(normal, sunDirection), 0.0) * uSunlight;
+            vec3 toLamp = uLampPosition - vPosition;
+            float distanceSquared = max(dot(toLamp, toLamp), 0.01);
+            float lamp = max(dot(normal, normalize(toLamp)), 0.0)
+                       * uLampPower / (1.0 + 0.12 * distanceSquared);
+            vec3 lighting = vec3(uAmbient + sun) + vec3(1.0, 0.74, 0.42) * lamp;
+            FragColor = vec4(clamp(vColor * lighting, 0.0, 1.0), 1.0);
+        })";
+    const GLuint vertex = compileShader(GL_VERTEX_SHADER, vertexSource);
+    if (!vertex) return 0;
+    const GLuint fragment = compileShader(GL_FRAGMENT_SHADER, fragmentSource);
+    if (!fragment) {
+        glDeleteShader(vertex);
+        return 0;
+    }
+    const GLuint program = glCreateProgram();
+    glAttachShader(program, vertex);
+    glAttachShader(program, fragment);
+    glLinkProgram(program);
+    glDeleteShader(vertex);
+    glDeleteShader(fragment);
+    GLint success = GL_FALSE;
+    glGetProgramiv(program, GL_LINK_STATUS, &success);
+    if (!success) {
+        GLint length = 0;
+        glGetProgramiv(program, GL_INFO_LOG_LENGTH, &length);
+        std::vector<char> log(size_t(std::max(length, 1)));
+        glGetProgramInfoLog(program, length, nullptr, log.data());
+        std::cerr << "Shader linking failed: " << log.data() << '\n';
+        glDeleteProgram(program);
+        return 0;
+    }
+    return program;
+}
+
+bool savePpm(GLFWwindow* window, int scene, const std::string& requestedPath) {
+    int width = 0, height = 0;
+    glfwGetFramebufferSize(window, &width, &height);
+    if (width <= 0 || height <= 0) return false;
+    std::vector<unsigned char> pixels(size_t(width) * size_t(height) * 3);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadBuffer(GL_BACK);
+    glReadPixels(0, 0, width, height, GL_RGB, GL_UNSIGNED_BYTE, pixels.data());
+    const std::string path = requestedPath.empty()
+        ? "out/scene3d-" + std::to_string(scene) + ".ppm"
+        : requestedPath;
+    std::ofstream file(path, std::ios::binary);
+    if (!file) {
+        std::cerr << "Could not write screenshot: " << path << '\n';
+        return false;
+    }
+    file << "P6\n" << width << ' ' << height << "\n255\n";
+    const size_t rowSize = size_t(width) * 3;
+    for (int row = height - 1; row >= 0; --row)
+        file.write(reinterpret_cast<const char*>(pixels.data() + size_t(row) * rowSize),
+                   std::streamsize(rowSize));
+    std::cout << "Saved " << path << '\n';
+    return bool(file);
+}
+
+void updateWindowTitle(GLFWwindow* window, int scene) {
+    const std::string title = "Bench Years 3D - Scene " + std::to_string(scene)
+        + " | arrows: scenes, WASD: orbit, Q/E: zoom, P: screenshot";
+    glfwSetWindowTitle(window, title.c_str());
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    int scene = 0;
+    std::string capturePath;
+    const bool capture = argc > 1 && std::string(argv[1]) == "--capture";
+    if (capture) {
+        if (argc != 4) {
+            std::cerr << "Usage: bench3d --capture <scene 0-7> <output.ppm>\n";
+            return 1;
+        }
+        try {
+            scene = std::stoi(argv[2]);
+        } catch (const std::exception&) {
+            std::cerr << "Scene must be 0..7\n";
+            return 1;
+        }
+        capturePath = argv[3];
+    } else if (argc > 1) {
+        try {
+            scene = std::stoi(argv[1]);
+        } catch (const std::exception&) {
+            std::cerr << "Usage: bench3d [scene 0-7]\n";
+            return 1;
+        }
+    }
+    if (scene < 0 || scene > 7) {
+        std::cerr << "Scene must be 0..7\n";
+        return 1;
+    }
+    if (!glfwInit()) {
+        std::cerr << "GLFW initialization failed\n";
+        return 1;
+    }
+
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_SAMPLES, 4);
+    if (capture) glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    GLFWwindow* window = glfwCreateWindow(1100, 680, "Bench Years 3D", nullptr, nullptr);
+    if (!window) {
+        std::cerr << "Could not create an OpenGL 3.3 window/context\n";
+        glfwTerminate();
+        return 1;
+    }
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1);
+    if (!gladLoadGL(glfwGetProcAddress) || !GLAD_GL_VERSION_3_3) {
+        std::cerr << "An OpenGL 3.3 core context is required\n";
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 1;
+    }
+    std::cout << "OpenGL " << reinterpret_cast<const char*>(glGetString(GL_VERSION)) << '\n';
+
+    const GLuint program = createProgram();
+    if (!program) {
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return 1;
+    }
+    GLuint vao = 0, vbo = 0;
+    glGenVertexArrays(1, &vao);
+    glGenBuffers(1, &vbo);
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          reinterpret_cast<void*>(offsetof(Vertex, position)));
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          reinterpret_cast<void*>(offsetof(Vertex, normal)));
+    glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          reinterpret_cast<void*>(offsetof(Vertex, color)));
+    glEnableVertexAttribArray(0);
+    glEnableVertexAttribArray(1);
+    glEnableVertexAttribArray(2);
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_MULTISAMPLE);
+    glDisable(GL_CULL_FACE);
+
+    std::vector<Vertex> vertices = buildScene(scene);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(vertices.size() * sizeof(Vertex)),
+                 vertices.data(), GL_STATIC_DRAW);
+    updateWindowTitle(window, scene);
+
+    float yaw = .1f, pitch = .12f, distance = 17.5f;
+    if (capture) {
+        renderFrame(window, program, vao, vertices.size(), scene, yaw, pitch, distance);
+        glFinish();
+        const bool saved = savePpm(window, scene, capturePath);
+        glDeleteBuffers(1, &vbo);
+        glDeleteVertexArrays(1, &vao);
+        glDeleteProgram(program);
+        glfwDestroyWindow(window);
+        glfwTerminate();
+        return saved ? 0 : 1;
+    }
+
+    bool leftWasDown = false, rightWasDown = false, screenshotWasDown = false;
+    double previousTime = glfwGetTime();
+    while (!glfwWindowShouldClose(window)) {
+        const double now = glfwGetTime();
+        const float dt = float(std::min(now - previousTime, .05));
+        previousTime = now;
+        glfwPollEvents();
+        if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
+            glfwSetWindowShouldClose(window, GLFW_TRUE);
+
+        const bool left = glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS;
+        const bool right = glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS;
+        bool sceneChanged = false;
+        if (left && !leftWasDown) { scene = (scene + 7) % 8; sceneChanged = true; }
+        if (right && !rightWasDown) { scene = (scene + 1) % 8; sceneChanged = true; }
+        leftWasDown = left;
+        rightWasDown = right;
+        if (sceneChanged) {
+            vertices = buildScene(scene);
+            glBindBuffer(GL_ARRAY_BUFFER, vbo);
+            glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(vertices.size() * sizeof(Vertex)),
+                         vertices.data(), GL_STATIC_DRAW);
+            updateWindowTitle(window, scene);
+        }
+
+        if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) yaw -= 1.1f * dt;
+        if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) yaw += 1.1f * dt;
+        if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) pitch = std::min(.9f, pitch + .8f * dt);
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) pitch = std::max(.04f, pitch - .8f * dt);
+        if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) distance = std::min(28.f, distance + 7.f * dt);
+        if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) distance = std::max(9.f, distance - 7.f * dt);
+
+        const bool screenshot = glfwGetKey(window, GLFW_KEY_P) == GLFW_PRESS;
+        const bool takeScreenshot = screenshot && !screenshotWasDown;
+        screenshotWasDown = screenshot;
+
+        int width = 0, height = 0;
+        glfwGetFramebufferSize(window, &width, &height);
+        if (width == 0 || height == 0) continue;
+        renderFrame(window, program, vao, vertices.size(), scene, yaw, pitch, distance);
+        if (takeScreenshot) {
+            glFinish();
+            savePpm(window, scene, {});
+        }
+        glfwSwapBuffers(window);
+    }
+
+    glDeleteBuffers(1, &vbo);
+    glDeleteVertexArrays(1, &vao);
+    glDeleteProgram(program);
+    glfwDestroyWindow(window);
+    glfwTerminate();
+    return 0;
+}
