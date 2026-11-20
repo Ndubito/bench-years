@@ -1,6 +1,8 @@
 // Owner: D. Environment: sky, sun, hills, lawn, path, tree, lamp, bench.
 // Figures (C) are added later inside buildScene; keep the signature.
 #include "shape.h"
+#include "figure.h"
+#include "anim.h"
 #include "scene_params.h"
 #include <algorithm>
 #include <cmath>
@@ -504,12 +506,327 @@ void addBench(Scene& v, const Env& e) {
                 reflectedLight, 6.5f);
         addRect(v, 365.f, 270.f, 410.f, 276.f, reflectedLight, 6.5f);
     }
+}
 
+// ---------- figures & props for Scenes 1-4 (scene indices 0..3) ----------
+constexpr float SEAT_Y = 266.f;
+
+uint32_t tintSceneColor(uint32_t c, int scene) {
+    if (scene == 6) return mix(c, rgb(235, 219, 245), 0.08f);
+    if (scene == 7) return mix(c, rgb(102, 122, 199), 0.55f);
+    return c;
 }
+
+float sstep(float u) { return anim::easeInOut(u); }
+float lerpF(float a, float b, float u) { return anim::lerp(a, b, u); }
+float clampF(float v, float lo, float hi) { return std::min(hi, std::max(lo, v)); }
+bool blinkAt(float t) { return std::fmod(t * 0.83f, 3.3f) < 0.13f; }
+
+fig::Look makeBoyLook(int scene, uint32_t top, uint32_t bottom = rgb(0x2e, 0x3a, 0x4d),
+                      fig::Hair hair = fig::Hair::Short, float hs = 1.f) {
+    fig::Look l = fig::makeMan();
+    l.skin = tintSceneColor(l.skin, scene);
+    l.hairC = tintSceneColor(l.hairC, scene);
+    l.shoe = tintSceneColor(l.shoe, scene);
+    l.top = tintSceneColor(top, scene);
+    l.bottom = tintSceneColor(bottom, scene);
+    l.hair = hair;
+    l.hs = hs;
+    return l;
 }
+
+fig::Look makeGirlLook(int scene, uint32_t top, fig::Hair hair = fig::Hair::Puff,
+                       bool scarf = false, float hs = 1.f) {
+    fig::Look l = fig::makeWoman();
+    l.skin = tintSceneColor(l.skin, scene);
+    l.hairC = tintSceneColor(l.hairC, scene);
+    l.shoe = tintSceneColor(l.shoe, scene);
+    l.top = tintSceneColor(top, scene);
+    l.bottom = l.skin;
+    l.hair = hair;
+    l.hasScarf = scarf;
+    l.scarf = tintSceneColor(rgb(0xc9, 0x3b, 0x3b), scene);
+    l.hs = hs;
+    return l;
+}
+
+void addShadow(Scene& v, float cx, float cy, float rx, float ry, float z) {
+    addEllipse(v, cx, cy, rx, ry, withAlpha(rgb(0, 0, 0), 54), z);
+}
+
+// Scene 1 (index 0): Tag game around the bench; two kids hop onto the bench
+void addScene1Figures(Scene& v, float t) {
+    struct KidSpec { float cx, A, w, p, gy; uint32_t top; bool female, back; };
+    static const KidSpec kids[5] = {
+        {170.f, 120.f, 1.7f, 0.f, 324.f, rgb(0xe8, 0x6a, 0x5a), false, false},
+        {470.f, 130.f, 1.3f, 2.f, 332.f, rgb(0x5a, 0xa0, 0xd8), true,  false},
+        {250.f, 150.f, 1.1f, 4.f, 288.f, rgb(0x9b, 0x6f, 0xd0), false, true},
+        {420.f, 110.f, 1.9f, 1.f, 291.f, rgb(0x4d, 0xb3, 0x8a), true,  true},
+        {560.f,  60.f, 2.1f, 3.f, 289.f, rgb(0xf0, 0x8a, 0x3c), false, true}
+    };
+
+    auto runKid = [&](const KidSpec& k, int idx, float zBase) {
+        float ex = sstep((t - 4.2f) / 1.6f);
+        float arg = k.w * t + k.p;
+        float x = lerpF(k.cx + k.A * std::sin(arg), -60.f - 70.f * float(idx), ex);
+        float faceRaw = lerpF(clampF(std::cos(arg) * 3.f, -1.f, 1.f), -1.f, ex);
+        int facing = faceRaw >= 0.f ? 1 : -1;
+        float s = k.back ? 0.50f : 0.56f;
+
+        addShadow(v, x, k.gy + 1.f, 13.f * s, 2.6f * s, zBase - 0.05f);
+        fig::WalkPose wp;
+        wp.look = k.female
+            ? makeGirlLook(0, k.top, fig::Hair::Twin, false, 1.35f)
+            : makeBoyLook(0, k.top, rgb(0x3b, 0x4a, 0x6b), fig::Hair::Short, 1.35f);
+        wp.x = x;
+        wp.gy = k.gy;
+        wp.s = s;
+        wp.facing = facing;
+        wp.moving = true;
+        wp.phase = t * 13.f + k.p;
+        wp.amp = 0.85f;
+        wp.z = zBase;
+        fig::buildWalking(wp, v);
+    };
+
+    auto hopKid = [&](float x0, float xj, float xs, int face, bool female,
+                      uint32_t top, float s, float ph, float zBase) {
+        const float gy = 314.f, standHip = gy - 41.f * s, tRun = 0.9f, tJ = 0.6f;
+        fig::Look look = female
+            ? makeGirlLook(0, top, fig::Hair::Twin, false, 1.35f)
+            : makeBoyLook(0, top, rgb(0x3b, 0x4a, 0x6b), fig::Hair::Short, 1.35f);
+
+        if (t < tRun) {
+            float x = lerpF(x0, xj, t / tRun);
+            addShadow(v, x, gy + 1.f, 13.f * s, 2.6f * s, zBase - 0.05f);
+            fig::WalkPose wp;
+            wp.look = look; wp.x = x; wp.gy = gy; wp.s = s;
+            wp.facing = face; wp.moving = true; wp.phase = t * 14.f + ph; wp.amp = 0.85f;
+            wp.z = zBase;
+            fig::buildWalking(wp, v);
+            return;
+        }
+        if (t < tRun + tJ) {
+            float u = (t - tRun) / tJ;
+            fig::SeatedPose sp;
+            sp.look = look;
+            sp.x = lerpF(xj, xs, u);
+            sp.y = lerpF(standHip, SEAT_Y, u) - 20.f * std::sin(3.14159265f * u);
+            sp.s = s;
+            sp.knee[0] = 0.7f; sp.knee[1] = -0.6f;
+            sp.smile = true; sp.open = true;
+            sp.z = zBase;
+            fig::buildSeated(sp, v);
+            return;
+        }
+        float w = t * 6.f + ph;
+        fig::SeatedPose sp;
+        sp.look = look;
+        sp.x = xs; sp.y = SEAT_Y; sp.s = s;
+        sp.knee[0] = 0.55f * std::sin(w);
+        sp.knee[1] = 0.55f * std::sin(w + 3.14159265f);
+        sp.bounce = 1.3f * std::abs(std::sin(t * 7.f + ph));
+        sp.smile = true;
+        sp.open = std::sin(t * 7.f + ph) > 0.f;
+        sp.blink = blinkAt(t + ph);
+        sp.turn = t > 4.4f ? -0.8f : 0.f;
+        sp.z = zBase;
+        fig::buildSeated(sp, v);
+    };
+
+    // Background runners behind the bench (z = 3.5..3.9)
+    for (int i = 0; i < 5; ++i)
+        if (kids[i].back) runKid(kids[i], i, 3.5f + 0.1f * float(i));
+
+    // Two kids hopping onto the bench (z = 7.0..7.6)
+    hopKid(-30.f, 250.f, 292.f,  1, false, rgb(0xe9, 0xb4, 0x4c), 0.56f, 0.f, 7.0f);
+    hopKid(670.f, 392.f, 348.f, -1, true,  rgb(0xe0, 0x60, 0x7e), 0.52f, 2.f, 7.6f);
+
+    // Foreground runners in front of the bench (z = 8.4..8.8)
+    for (int i = 0; i < 5; ++i)
+        if (!kids[i].back) runKid(kids[i], i, 8.4f + 0.2f * float(i));
+}
+
+// Scene 2 (index 1): Age 13 - sharing one phone & earphones + background walkers
+void addScene2Figures(Scene& v, float t) {
+    // Background walkers behind the bench
+    {
+        float x1 = -40.f + t * 100.f;
+        addShadow(v, x1, 290.f, 13.f * 0.8f, 2.6f * 0.8f, 3.45f);
+        fig::WalkPose w1;
+        w1.look = makeBoyLook(1, rgb(0xc9, 0x7b, 0x3a), rgb(0x37, 0x42, 0x5a));
+        w1.x = x1; w1.gy = 289.f; w1.s = 0.8f; w1.facing = 1;
+        w1.moving = true; w1.phase = t * 7.f; w1.z = 3.5f;
+        fig::buildWalking(w1, v);
+
+        float x2 = 690.f - t * 80.f;
+        addShadow(v, x2, 288.f, 13.f * 0.72f, 2.6f * 0.72f, 3.65f);
+        fig::WalkPose w2;
+        w2.look = makeGirlLook(1, rgb(0x5a, 0x9a, 0x76), fig::Hair::Bun);
+        w2.x = x2; w2.gy = 287.f; w2.s = 0.72f; w2.facing = -1;
+        w2.moving = true; w2.phase = t * 6.5f; w2.z = 3.7f;
+        fig::buildWalking(w2, v);
+    }
+
+    float bump = std::exp(-std::pow(t - 3.2f, 2.f) / 0.05f);
+    bool lg = (t > 3.3f && t < 5.2f);
+    float share = sstep((t - 0.8f) / 0.8f);
+    float laugh = lg ? std::abs(std::sin(t * 9.f)) * 1.3f : 0.f;
+
+    fig::SeatedPose mp;
+    mp.look = makeBoyLook(1, rgb(0x4a, 0x7f, 0xb5), rgb(0x2e, 0x3a, 0x4d), fig::Hair::Short, 1.1f);
+    mp.x = 300.f; mp.y = SEAT_Y; mp.s = 0.8f;
+    mp.lean = 0.02f - bump * 0.05f + (lg ? std::sin(t * 9.f) * 0.01f : 0.f);
+    mp.tilt = 0.08f * share;
+    mp.knee[0] = 0.1f * std::sin(t * 2.f); mp.knee[1] = 0.f;
+    mp.hasHandR = true; mp.handR = {318.f, 262.f};
+    mp.blink = blinkAt(t); mp.smile = lg; mp.open = lg;
+    mp.bounce = laugh; mp.turn = 0.5f * share; mp.z = 7.0f;
+    fig::SeatedOut m = fig::buildSeated(mp, v);
+
+    fig::SeatedPose wp;
+    wp.look = makeGirlLook(1, rgb(0x8c, 0x6f, 0xd0), fig::Hair::Pony, false, 1.1f);
+    wp.x = 340.f; wp.y = SEAT_Y; wp.s = 0.78f;
+    wp.lean = -0.02f - bump * 0.14f;
+    wp.tilt = -0.08f * share;
+    wp.knee[0] = 0.f; wp.knee[1] = 0.1f * std::sin(t * 2.f + 1.f);
+    wp.hasHandL = true; wp.handL = {324.f, 262.f};
+    wp.blink = blinkAt(t + 1.f); wp.smile = lg; wp.open = lg;
+    wp.bounce = laugh * 0.9f; wp.turn = -0.5f * share; wp.z = 7.6f;
+    fig::SeatedOut w = fig::buildSeated(wp, v);
+
+    // Phone & glowing screen
+    addRect(v, 316.f, 255.f, 326.f, 269.f, tintSceneColor(rgb(0x20, 0x23, 0x2b), 1), 8.2f);
+    addRect(v, 317.f, 256.f, 325.f, 266.f, tintSceneColor(rgb(0x9a, 0xd0, 0xf0), 1), 8.25f);
+
+    // Shared earphones & cable
+    if (share > 0.f) {
+        Vec2 a = m.earR, b = w.earL;
+        float midY = std::max(a.y, b.y) + 22.f;
+        auto cable = sampleBezier(a, {a.x + 2.f, midY}, {b.x - 2.f, midY}, b, 18);
+        for (size_t i = 0; i + 1 < cable.size(); ++i)
+            addSeg(v, cable[i], cable[i + 1], 1.1f, 1.1f, rgb(0xf4, 0xf4, 0xf4), 8.3f);
+        addDisc(v, a.x, a.y, 1.2f, rgb(0xff, 0xff, 0xff), 8.35f);
+        addDisc(v, b.x, b.y, 1.2f, rgb(0xff, 0xff, 0xff), 8.35f);
+    }
+}
+
+// Scene 3 (index 2): Age 17 - holding hands, head on shoulder, red scarf appears
+void addScene3Figures(Scene& v, float t) {
+    float hold = sstep((t - 1.2f) / 0.6f);
+    float arm = sstep((t - 2.6f) / 0.8f);
+    float settle = sstep((t - 1.6f) / 1.2f);
+
+    fig::SeatedPose mp;
+    mp.look = makeBoyLook(2, rgb(0x3f, 0x4c, 0x5e), rgb(0x2e, 0x3a, 0x4d));
+    mp.x = 306.f; mp.y = SEAT_Y; mp.s = 0.97f;
+    mp.lean = 0.02f + 0.05f * settle;
+    mp.tilt = 0.12f * settle;
+    mp.blink = blinkAt(t);
+    mp.hasHandL = true; mp.handL = {292.f, 268.f};
+    mp.hasHandR = true;
+    mp.handR = arm > 0.f ? Vec2{lerpF(323.f, 348.f, arm), lerpF(269.f, 239.f, arm)}
+             : hold > 0.f ? Vec2{323.f, 269.f}
+                          : Vec2{313.f, 268.f};
+    mp.smile = settle > 0.5f;
+    mp.bounce = 0.4f * std::sin(t * 2.f);
+    mp.z = 7.0f;
+    fig::buildSeated(mp, v);
+
+    fig::SeatedPose wp;
+    wp.look = makeGirlLook(2, rgb(0xe0, 0x7a, 0x5f), fig::Hair::Pony, true);
+    wp.x = 336.f; wp.y = SEAT_Y; wp.s = 0.95f;
+    wp.lean = -0.20f * settle;
+    wp.tilt = -0.18f * settle;
+    wp.blink = blinkAt(t + 1.2f);
+    wp.hasHandL = true; wp.handL = hold > 0.f ? Vec2{323.f, 269.f} : Vec2{329.f, 268.f};
+    wp.hasHandR = true; wp.handR = {345.f, 268.f};
+    wp.smile = settle > 0.5f;
+    wp.bounce = 0.4f * std::sin(t * 2.f + 1.f);
+    wp.z = 7.6f;
+    fig::buildSeated(wp, v);
+}
+
+// Scene 4 (index 3): Age 27 - work bag, two steaming coffees, ring glint
+void addScene4Figures(Scene& v, float t) {
+    float clink = std::exp(-std::pow(t - 2.4f, 2.f) / 0.03f) * 3.f;
+
+    // Briefcase / work bag on the left side of the bench
+    uint32_t bag = tintSceneColor(rgb(0x7b, 0x4b, 0x2a), 3);
+    uint32_t handle = tintSceneColor(rgb(0x4a, 0x2c, 0x16), 3);
+    addRect(v, 251.f, 252.f, 277.f, 267.f, bag, 6.8f);
+    addSeg(v, {258.f, 252.f}, {258.f, 247.f}, 1.4f, 1.4f, handle, 6.85f);
+    addSeg(v, {258.f, 247.f}, {270.f, 247.f}, 1.4f, 1.4f, handle, 6.85f);
+    addSeg(v, {270.f, 247.f}, {270.f, 252.f}, 1.4f, 1.4f, handle, 6.85f);
+
+    Vec2 mh{318.f + clink, 257.f}, wh{324.f - clink, 257.f};
+
+    fig::SeatedPose mp;
+    mp.look = makeBoyLook(3, rgb(0xee, 0xf0, 0xf5), rgb(0x2b, 0x34, 0x47));
+    mp.x = 303.f; mp.y = SEAT_Y; mp.s = 1.04f;
+    mp.lean = 0.04f; mp.tilt = 0.06f;
+    mp.hasHandR = true; mp.handR = mh;
+    mp.hasHandL = true; mp.handL = {291.f, 268.f};
+    mp.blink = blinkAt(t); mp.smile = true;
+    mp.bounce = 0.4f * std::sin(t * 2.f);
+    mp.z = 7.0f;
+    fig::buildSeated(mp, v);
+
+    fig::SeatedPose wp;
+    wp.look = makeGirlLook(3, rgb(0x2f, 0x8f, 0x9d), fig::Hair::Puff, true);
+    wp.x = 340.f; wp.y = SEAT_Y; wp.s = 0.98f;
+    wp.lean = -0.05f; wp.tilt = -0.09f;
+    wp.hasHandL = true; wp.handL = wh;
+    wp.hasHandR = true; wp.handR = {347.f, 268.f};
+    wp.blink = blinkAt(t + 1.5f); wp.smile = true;
+    wp.bounce = 0.4f * std::sin(t * 2.f + 1.f);
+    wp.z = 7.6f;
+    fig::SeatedOut w = fig::buildSeated(wp, v);
+
+    auto addCup = [&](float cx, float cy, float seed, float zBase) {
+        addPoly(v, {{cx - 3.5f, cy - 8.f}, {cx + 3.5f, cy - 8.f},
+                    {cx + 2.7f, cy + 1.f}, {cx - 2.7f, cy + 1.f}},
+                tintSceneColor(rgb(0xf4, 0xf1, 0xea), 3), zBase);
+        addPoly(v, {{cx - 3.5f, cy - 8.f}, {cx + 3.5f, cy - 8.f},
+                    {cx + 3.3f, cy - 6.f}, {cx - 3.3f, cy - 6.f}},
+                tintSceneColor(rgb(0x7a, 0x4a, 0x2a), 3), zBase + 0.05f);
+        for (int k = 0; k < 3; ++k) {
+            float u = std::fmod(t * 0.6f + float(k) / 3.f + seed, 1.f);
+            float sx = cx + std::sin(u * 8.f + float(k) * 2.f + seed) * 2.f;
+            float sy = cy - 10.f - u * 12.f;
+            uint8_t a = uint8_t(180.f * (1.f - u));
+            addDisc(v, sx, sy, 1.1f, withAlpha(rgb(255, 255, 255), a), zBase + 0.1f);
+        }
+    };
+    addCup(mh.x + 1.f, mh.y + 2.f, 0.f,  8.2f);
+    addCup(wh.x - 1.f, wh.y + 2.f, 1.3f, 8.4f);
+
+    // Ring sparkle on her right hand
+    float ph = std::fmod(t * 0.7f, 2.4f);
+    if (ph < 0.4f) {
+        float r = 2.f + 4.f * std::sin((ph / 0.4f) * 3.14159265f);
+        Vec2 h = w.handR;
+        float cy = h.y - 1.f;
+        uint32_t white = rgb(255, 255, 255);
+        addSeg(v, {h.x - r, cy}, {h.x + r, cy}, 0.9f, 0.9f, white, 8.6f);
+        addSeg(v, {h.x, cy - r}, {h.x, cy + r}, 0.9f, 0.9f, white, 8.6f);
+        addSeg(v, {h.x - r * 0.6f, cy - r * 0.6f}, {h.x + r * 0.6f, cy + r * 0.6f}, 0.8f, 0.8f, white, 8.6f);
+        addSeg(v, {h.x - r * 0.6f, cy + r * 0.6f}, {h.x + r * 0.6f, cy - r * 0.6f}, 0.8f, 0.8f, white, 8.6f);
+    }
+}
+
+void addCharacters(Scene& v, int scene, float t) {
+    switch (scene) {
+        case 0: addScene1Figures(v, t); break;
+        case 1: addScene2Figures(v, t); break;
+        case 2: addScene3Figures(v, t); break;
+        case 3: addScene4Figures(v, t); break;
+        default: break;
+    }
+}
+} // namespace
 
 std::vector<Shape> buildScene(int scene, float t) {
-    (void)t;
     const Env& e = envFor(scene);
     Scene v;
     addSky(v, e);
@@ -517,6 +834,6 @@ std::vector<Shape> buildScene(int scene, float t) {
     addTree(v, e);
     addLamp(v, e);
     addBench(v, e);
-    // C's seated and walking figures get added here (z >= 7)
+    addCharacters(v, scene, t);
     return v;
 }
