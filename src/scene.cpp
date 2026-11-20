@@ -5,6 +5,7 @@
 #include <cmath>
 #include <utility>
 #include <vector>
+#include "figures_late.h"
 
 int sceneCount() { return 8; }
 
@@ -219,6 +220,7 @@ std::vector<Shape> buildScene(int scene, float t) {
     addTree(v, e);
     addLamp(v, e);
     addBench(v, e);
+    addFiguresLate(v, scene, t); // scenes 5 to 8
     // C's seated and walking figures get added here (z >= 7)
     return v;
 }
