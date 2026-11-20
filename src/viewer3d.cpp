@@ -12,6 +12,9 @@
 #include <string>
 #include <vector>
 #include "scene_params.h"
+#include "shape.h"
+
+std::vector<Shape> buildScene(int scene, float t);
 
 namespace {
 
@@ -181,6 +184,22 @@ struct Mesh {
             }
         }
     }
+    void leaf3D(Vec3 base, Vec3 dir, Vec3 side, float len, float width, Color color) {
+        dir = normalized(dir);
+        side = normalized(side - dir * dot(side, dir));
+        const Vec3 up = normalized(cross(side, dir));
+        const Vec3 p0 = base;
+        const Vec3 p1 = base + dir * (len * 0.28f) + side * (width * 0.28f) + up * (len * 0.04f);
+        const Vec3 p2 = base + dir * (len * 0.68f) + side * (width * 0.50f) + up * (len * 0.06f);
+        const Vec3 p3 = base + dir * len;
+        const Vec3 p4 = base + dir * (len * 0.68f) - side * (width * 0.50f) + up * (len * 0.06f);
+        const Vec3 p5 = base + dir * (len * 0.28f) - side * (width * 0.28f) + up * (len * 0.04f);
+        const Vec3 n = normalized(up + Vec3{0.f, 0.35f, 0.25f});
+        triangle(p0, p1, p2, color, n);
+        triangle(p0, p2, p3, color, n);
+        triangle(p0, p3, p4, color, n);
+        triangle(p0, p4, p5, color, n);
+    }
 };
 
 void addHills(Mesh& mesh, const SceneLook& look) {
@@ -222,55 +241,106 @@ void addPath(Mesh& mesh, Color lawn) {
     }
 }
 
-void addBranch(Mesh& mesh, Vec3 start, float angle, float length, float radius,
-               int depth, int id, const SceneLook& look) {
+void addBranch(Mesh& mesh, Vec3 start, float angle, float yawAngle, float length, float radius,
+               int depth, int id, const SceneLook& look, int scene) {
     Vec3 previous = start;
     const int segments = 3;
     Vec3 end = start;
     float tipAngle = angle;
+
     for (int segment = 1; segment <= segments; ++segment) {
-        const float bend = .035f * std::sin((id + segment) * 1.7f);
+        const float bend = .045f * (random01(id * 29 + segment) - .5f);
         tipAngle = angle + bend * segment;
-        end = {start.x + std::sin(tipAngle) * length * segment / segments,
-               start.y + std::cos(tipAngle) * length * segment / segments,
-               start.z + std::sin(tipAngle * 1.31f + id) * .045f};
-        mesh.cylinder(previous, end, radius * (1.f - float(segment - 1) / segments * .32f),
+        const Vec3 stepDir{std::sin(tipAngle) * std::cos(yawAngle),
+                           std::cos(tipAngle),
+                           std::sin(tipAngle) * std::sin(yawAngle)};
+        end = start + stepDir * (length * float(segment) / float(segments));
+        mesh.cylinder(previous, end,
+                      radius * (1.f - float(segment - 1) / segments * .32f),
                       radius * (1.f - float(segment) / segments * .32f),
                       look.trunk, 8);
         previous = end;
     }
-    if (depth <= 1 && look.leafDensity > 0.f) {
-        const int clusters = 2 + int(7.f * look.leafDensity);
-        const float size = .14f + .13f * look.treeSize;
-        for (int i = 0; i < clusters; ++i) {
-            const int seed = id * 31 + i * 17;
-            const Vec3 offset{(random01(seed + 1) - .5f) * .58f,
-                              (random01(seed + 3) - .5f) * .5f,
-                              (random01(seed + 5) - .5f) * .48f};
-            const Color leafColor = (id + i) % 4 == 0
-                ? mix(look.leaves, rgb(235,190,75), .32f)
-                : look.leaves;
-            const float sizeScale = .72f + .32f * random01(seed + 7);
-            mesh.sphere(end + offset, size * sizeScale, leafColor, 14, 10);
+
+    constexpr std::array<float, 8> kSceneCanopyBoost = {
+        0.38f, // Scene 0: young sapling (light, fresh buds)
+        0.68f, // Scene 1: growing young tree
+        1.05f, // Scene 2: lush spring/early summer
+        1.35f, // Scene 3: peak full canopy
+        1.30f, // Scene 4: full mature canopy
+        0.95f, // Scene 5: leaves starting to dry & thin
+        0.58f, // Scene 6: sparser autumn foliage
+        0.30f  // Scene 7: late dry/winter sparse branches
+    };
+    const float stageBoost = kSceneCanopyBoost[size_t(std::clamp(scene, 0, 7))];
+    const float effectiveDensity = std::clamp(std::max(look.leafDensity, 0.25f) * stageBoost, 0.f, 1.45f);
+    const int maxLeafDepth = (scene == 0) ? 1 : 2;
+
+    if (depth <= maxLeafDepth && effectiveDensity > 0.0f) {
+        const int clusterNodes = 4 + int(6.f * effectiveDensity);
+        const int leavesPerCluster = 5 + int(6.f * effectiveDensity);
+        const float leafLen = (.21f + .16f * std::min(effectiveDensity, 1.1f)) * (.68f + .35f * look.treeSize);
+        const float clusterSpread = (.11f + .23f * std::min(effectiveDensity, 1.1f)) * (.60f + .40f * look.treeSize);
+
+        const Vec3 branchDir = normalized(end - start);
+        const Vec3 ref = std::abs(branchDir.y) < .9f ? Vec3{0.f, 1.f, 0.f} : Vec3{1.f, 0.f, 0.f};
+        const Vec3 sideA = normalized(cross(branchDir, ref));
+        const Vec3 sideB = cross(branchDir, sideA);
+
+        for (int c = 0; c < clusterNodes; ++c) {
+            const int cSeed = id * 53 + c * 29;
+            const float along = .22f + .78f * (float(c) + .5f) / float(clusterNodes);
+            const float nodeAngle = 6.2831853f * random01(cSeed + 1);
+            const float nodeRadius = clusterSpread * (.35f + .65f * random01(cSeed + 2));
+            const Vec3 clusterCenter = start + (end - start) * along
+                                     + (sideA * std::cos(nodeAngle) + sideB * std::sin(nodeAngle)) * nodeRadius;
+
+            for (int k = 0; k < leavesPerCluster; ++k) {
+                const int seed = cSeed * 19 + k * 13;
+                const float theta = 6.2831853f * (float(k) / float(leavesPerCluster) + .25f * random01(seed + 1));
+                const float elevation = (random01(seed + 2) - .35f) * 1.35f;
+
+                const Vec3 radialDir = normalized(
+                    sideA * (std::cos(theta) * std::cos(elevation)) +
+                    sideB * (std::sin(theta) * std::cos(elevation)) +
+                    branchDir * std::sin(elevation)
+                );
+                const Vec3 attach = clusterCenter + radialDir * (clusterSpread * .35f * random01(seed + 3));
+                const Vec3 outSide = normalized(cross(radialDir, branchDir + Vec3{0.f, 1.f, 0.f}));
+                const Vec3 leafDir = normalized(radialDir * .82f + Vec3{0.f, -.16f, 0.f});
+
+                Color leafColor = look.leaves;
+                if ((id + c + k) % 4 == 0)
+                    leafColor = mix(leafColor, rgb(245, 235, 165), .20f);
+                else if ((id + k) % 5 == 0)
+                    leafColor = mix(leafColor, rgb(32, 74, 34), .16f);
+                if (look.dryness > 0.25f && (id + c + k) % 3 == 0)
+                    leafColor = mix(leafColor, rgb(186, 128, 54), (look.dryness - 0.25f) * 0.65f);
+
+                const float scale = .78f + .42f * random01(seed + 5);
+                mesh.leaf3D(attach, leafDir, outSide, leafLen * scale, leafLen * .52f * scale, leafColor);
+            }
         }
     }
     if (depth <= 0) return;
-    const float spread = .48f + .12f * random01(id * 23 + depth);
-    addBranch(mesh, end, tipAngle - spread, length * .72f, radius * .68f, depth - 1, id * 2, look);
-    addBranch(mesh, end, tipAngle + spread, length * .72f, radius * .68f, depth - 1, id * 2 + 1, look);
+    const float spread = .46f + .14f * random01(id * 23 + depth);
+    const float yawShift = .55f * (random01(id * 19 + depth) - .5f);
+    addBranch(mesh, end, tipAngle - spread, yawAngle + yawShift, length * .74f, radius * .68f, depth - 1, id * 2, look, scene);
+    addBranch(mesh, end, tipAngle + spread, yawAngle - yawShift, length * .74f, radius * .68f, depth - 1, id * 2 + 1, look, scene);
 }
 
-void addTree(Mesh& mesh, const SceneLook& look) {
+void addTree(Mesh& mesh, const SceneLook& look, int scene) {
+    SceneLook treeLook = look;
+    if (treeLook.leafDensity <= 0.f) treeLook.leafDensity = 0.22f;
     const Vec3 root{-5.25f, .06f, -.55f};
-    const float scale = .50f + .68f * look.treeSize;
-    const float trunkLength = 1.45f + .85f * look.treeSize;
-    const int depth = 1 + int(2.f * look.treeSize + .5f);
-    // Subtle soil mound around tree roots (matches scene.cpp)
+    const float scale = .48f + .68f * treeLook.treeSize;
+    const float trunkLength = 1.25f + .95f * treeLook.treeSize;
+    const int depth = 2 + int(2.f * treeLook.treeSize + .5f);
     mesh.cylinder({root.x, 0.f, root.z}, {root.x, .07f, root.z}, .52f, .34f,
-                  mix(look.ground, look.trunk, .35f), 14);
-    addBranch(mesh, root, 0.f, trunkLength, .16f * scale, depth, 1, look);
-    mesh.cylinder(root, root + Vec3{-.42f, .04f, 0}, .12f, .025f, look.trunk, 8);
-    mesh.cylinder(root, root + Vec3{.43f, .04f, .05f}, .12f, .025f, look.trunk, 8);
+                  mix(treeLook.ground, treeLook.trunk, .35f), 14);
+    addBranch(mesh, root, 0.f, 0.2f, trunkLength, .15f * scale, depth, 1, treeLook, scene);
+    mesh.cylinder(root, root + Vec3{-.42f, .04f, 0}, .11f, .025f, treeLook.trunk, 8);
+    mesh.cylinder(root, root + Vec3{.43f, .04f, .05f}, .11f, .025f, treeLook.trunk, 8);
 }
 
 Color benchWood(const SceneLook& look) {
@@ -280,10 +350,14 @@ Color benchWood(const SceneLook& look) {
 void addBench(Mesh& mesh, const SceneLook& look) {
     const float seatY = .82f;
     const float frontZ = .42f;
-    const Color wood = benchWood(look);
+    const float dim = look.ambient < .3f ? .58f : 0.f;
+    const Color freshPaint = rgb(47, 154, 119);
+    const Color fadedPaint = rgb(98, 128, 114);
+    const Color wood = mix(mix(freshPaint, fadedPaint, look.benchWear * .75f), rgb(12, 18, 24), dim);
+    const Color frontLip = mix(wood, rgb(255, 255, 255), .14f * (1.f - look.benchWear * .5f));
     const Color metal = mix(rgb(42,48,52), rgb(10,12,17), look.ambient < .3f ? .55f : 0.f);
     for (float x : {-1.58f, 1.58f}) {
-        mesh.cylinder({x,.08f,frontZ}, {x,seatY,frontZ}, .075f, .055f, metal);
+        mesh.cylinder({x,.08f, frontZ}, {x,seatY,frontZ}, .075f, .055f, metal);
         mesh.cylinder({x,.08f,-.42f}, {x,seatY,-.42f}, .075f, .055f, metal);
         mesh.cylinder({x,.72f,-.42f}, {x,1.72f,-.42f}, .055f, .045f, metal);
     }
@@ -293,13 +367,32 @@ void addBench(Mesh& mesh, const SceneLook& look) {
         mesh.box({0,y,-.43f}, {4.2f,.17f,.12f}, wood);
     mesh.box({0,.69f,-.03f}, {3.55f,.09f,.78f}, metal);
 
-    const int patches = std::max(0, int(std::ceil(look.benchWear * 12.f)));
-    const Color worn = mix(rgb(135,91,55), rgb(34,30,28), look.ambient < .3f ? .5f : 0.f);
-    for (int i = 0; i < patches; ++i) {
-        const float x = -1.78f + 3.56f * random01(i * 31 + 1);
-        const float z = -.25f + .5f * random01(i * 37 + 3);
-        mesh.box({x, seatY + .075f, z}, {.09f,.012f,.07f}, worn);
-    }
+    if (look.benchWear > 0.f) {
+        const Color exposedWood = mix(rgb(143, 102, 64), rgb(25, 23, 20), dim);
+        const Color wornWood = mix(rgb(105, 75, 52), rgb(27, 24, 22), dim);
+        const Color rust = mix(rgb(138, 83, 49), rgb(34, 28, 25), dim);
+        const int patches = std::max(1, int(std::ceil(look.benchWear * 14.f)));
+
+    for (int b = 0; b < 3; ++b) {
+            const float slatY = 1.05f + .25f * float(b);
+            for (int i = 0; i < patches; ++i) {
+                const int seed = (b + 5) * 113 + i * 37;
+                const float x = -1.88f + 3.76f * random01(seed + 1);
+                const float w = (.12f + .28f * look.benchWear) * (.7f + .6f * random01(seed + 3));
+                const float h = .10f + .05f * random01(seed + 5);
+                const Color c = mix(exposedWood, wornWood, random01(seed + 7));
+                mesh.box({x, slatY, -.367f}, {w, h, .008f}, c);
+            }
+        }
+        // Rust spots on the metal legs
+        for (float x : {-1.58f, 1.58f}) {
+            for (int i = 0; i < std::max(1, patches / 2); ++i) {
+                const int seed = int(x * 100.f) + i * 43;
+                const float y = .15f + 1.45f * random01(seed + 1);
+                mesh.box({x, y, -.42f}, {.12f, .08f, .12f}, rust);
+            }
+        }
+    }   
     if (look.plaque) mesh.box({1.0f,1.31f,-.355f}, {.38f,.12f,.018f}, rgb(212,184,92));
 }
 
@@ -408,17 +501,116 @@ void addSky(Mesh& mesh, const SceneLook& look) {
               {40.f, 25.f, z}, {-40.f, 25.f, z},
               bottom, bottom, top, top, {0, 0, 1}, 1.0f);
 }
+// ---------- 2D Shape -> 3D Mesh bridge for scene.cpp characters (z < 4 or z > 6.6) ----------
+void addSceneFigures3D(Mesh& mesh, int scene, float t) {
+    const std::vector<Shape> shapes = ::buildScene(scene, t);
 
-std::vector<Vertex> buildScene(int scene) {
+    auto mapX = [](float x) { return (x - 320.f) * 0.023f; };
+    auto mapY = [](float y, float z) { 
+        if (z > 8.35f) {
+            return std::max(0.025f, 0.03f + (328.f - y) * 0.025f);
+        }
+        return std::max(0.01f, 0.93f + (266.f - y) * 0.025f); 
+    };
+    auto mapZ = [](float z) {
+        if (z < 4.5f) return -1.35f + (z - 3.4f) * 0.30f; // behind the bench
+        if (z > 8.35f) return 2.85f + (z - 8.4f) * 0.35f; // foreground path runners
+        return 0.36f + (z - 6.8f) * 0.14f;                // seated on/in front of bench
+    };
+    auto toColor = [](uint32_t rgba) -> Color {
+        return {float(rgba & 0xFFu) / 255.f,
+                float((rgba >> 8) & 0xFFu) / 255.f,
+                float((rgba >> 16) & 0xFFu) / 255.f};
+    };
+
+    for (const Shape& s : shapes) {
+        const bool isBgFigure = (s.z >= 3.4f && s.z <= 3.95f);
+        const bool isFgFigure = (s.z >= 6.75f);
+        if (!isBgFigure && !isFgFigure) continue;
+
+        const uint8_t alpha = uint8_t((s.rgba >> 24) & 0xFFu);
+        if (alpha < 20u) continue;
+
+        const Color col = toColor(s.rgba);
+        const float zc = mapZ(s.z);
+
+        if (alpha < 100u && s.kind == Kind::Poly && s.pts.size() >= 8) {
+            float minX = 1e9f, maxX = -1e9f, sumY = 0.f;
+            for (const Vec2& pt : s.pts) {
+                const Vec2 p = s.xf.apply(pt);
+                minX = std::min(minX, p.x);
+                maxX = std::max(maxX, p.x);
+                sumY += p.y;
+            }
+            const float cx = mapX((minX + maxX) * 0.5f);
+            const float rx = std::max(0.12f, (maxX - minX) * 0.5f * 0.023f);
+            const float cy = std::max(0.008f, mapY(sumY / float(s.pts.size()), s.z));
+            mesh.cylinder({cx, cy, zc}, {cx, cy + 0.006f, zc}, rx, rx, col, 14);
+            continue;
+        }
+
+        if (s.kind == Kind::Disc && !s.pts.empty()) {
+            const Vec2 p = s.xf.apply(s.pts[0]);
+            const float r3 = std::max(0.012f, s.r * 0.0235f);
+            // Use spheres for heads/joints (r >= 2.5px) and thin discs for eyes/sparkles
+            if (s.r >= 2.5f) {
+                mesh.sphere({mapX(p.x), mapY(p.y, s.z), zc}, r3, col, 14, 10);
+            } else {
+                mesh.cylinder({mapX(p.x), mapY(p.y, s.z), zc - 0.02f},
+                              {mapX(p.x), mapY(p.y, s.z), zc + 0.02f}, r3, r3, col, 10);
+            }
+        } else if ((s.kind == Kind::Strip || s.kind == Kind::Line) && s.pts.size() >= 2) {
+            for (size_t i = 0; i + 1 < s.pts.size(); ++i) {
+                const Vec2 a = s.xf.apply(s.pts[i]);
+                const Vec2 b = s.xf.apply(s.pts[i + 1]);
+                const float ra = std::max(0.012f, (s.kind == Kind::Line ? 1.2f : s.w0) * 0.0115f);
+                const float rb = std::max(0.012f, (s.kind == Kind::Line ? 1.2f : s.w1) * 0.0115f);
+                mesh.cylinder({mapX(a.x), mapY(a.y, s.z), zc},
+                              {mapX(b.x), mapY(b.y, s.z), zc}, ra, rb, col, 10);
+            }
+        } else if (s.kind == Kind::Poly && s.pts.size() >= 3) {
+            std::vector<Vec3> front, back;
+            front.reserve(s.pts.size());
+            back.reserve(s.pts.size());
+            const float halfDepth = 0.085f;
+            float area2 = 0.f;
+            for (size_t i = 0; i < s.pts.size(); ++i) {
+                const Vec2 p0 = s.xf.apply(s.pts[i]);
+                const Vec2 p1 = s.xf.apply(s.pts[(i + 1) % s.pts.size()]);
+                const float x0 = mapX(p0.x), y0 = mapY(p0.y, s.z);
+                const float x1 = mapX(p1.x), y1 = mapY(p1.y, s.z);
+                area2 += (x0 * y1 - x1 * y0);
+                front.push_back({x0, y0, zc + halfDepth});
+                back.push_back({x0, y0, zc - halfDepth});
+            }
+            // Fan-triangulate front (+Z) and back (-Z) faces
+            for (size_t i = 1; i + 1 < front.size(); ++i) {
+                mesh.triangle(front[0], front[i], front[i + 1], col, {0.f, 0.f, 1.f});
+                mesh.triangle(back[0], back[i + 1], back[i], col, {0.f, 0.f, -1.f});
+            }
+            // Extrude perimeter side walls for solid 3D volume
+            const float sign = area2 >= 0.f ? 1.f : -1.f;
+            for (size_t i = 0; i < front.size(); ++i) {
+                const size_t j = (i + 1) % front.size();
+                const Vec3 edge = front[j] - front[i];
+                const Vec3 sideNormal{edge.y * sign, -edge.x * sign, 0.f};
+                mesh.quad(front[i], front[j], back[j], back[i], col, sideNormal);
+            }
+        }
+    }
+}
+
+std::vector<Vertex> buildScene3D(int scene, float t = 2.5f) {
     const SceneLook& look = kScenes[size_t(scene)];
     Mesh mesh;
     addSky(mesh, look);
     addHills(mesh, look);
     addGrass(mesh, look, scene);
     addPath(mesh, look.ground);
-    addTree(mesh, look);
+    addTree(mesh, look, scene);
     addLamp(mesh, look);
     addBench(mesh, look);
+    addSceneFigures3D(mesh, scene, t);
     // Emissive = 1.0 keeps the sun glowing across dusk and night scenes
     mesh.sphere(sunPositionFor(scene), .38f, look.sun, 48, 32, 1.0f);
     return std::move(mesh.vertices);
@@ -698,10 +890,12 @@ int main(int argc, char** argv) {
     glEnable(GL_MULTISAMPLE);
     glDisable(GL_CULL_FACE);
 
-    std::vector<Vertex> vertices = buildScene(scene);
+    float sceneTime = 0.f;
+    bool paused = false, spaceWasDown = false;
+    std::vector<Vertex> vertices = buildScene3D(scene, sceneTime);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(vertices.size() * sizeof(Vertex)),
-                 vertices.data(), GL_STATIC_DRAW);
+                 vertices.data(), GL_DYNAMIC_DRAW);
     updateWindowTitle(window, scene);
 
     float yaw = .1f, pitch = .12f, distance = 17.5f;
@@ -727,6 +921,10 @@ int main(int argc, char** argv) {
         if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS)
             glfwSetWindowShouldClose(window, GLFW_TRUE);
 
+        const bool space = glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS;
+        if (space && !spaceWasDown) paused = !paused;
+        spaceWasDown = space;
+
         const bool left = glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS;
         const bool right = glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS;
         bool sceneChanged = false;
@@ -734,12 +932,25 @@ int main(int argc, char** argv) {
         if (right && !rightWasDown) { scene = (scene + 1) % 8; sceneChanged = true; }
         leftWasDown = left;
         rightWasDown = right;
+        
+
+        if (left && !leftWasDown) { scene = (scene + 7) % 8; sceneChanged = true; }
+        if (right && !rightWasDown) { scene = (scene + 1) % 8; sceneChanged = true; }
+        leftWasDown = left;
+        rightWasDown = right;
+
         if (sceneChanged) {
-            vertices = buildScene(scene);
+            sceneTime = 0.f;
+            updateWindowTitle(window, scene);
+        } else if (!paused) {
+            sceneTime = std::fmod(sceneTime + dt, 6.f);
+        }
+
+        if (sceneChanged || !paused) {
+            vertices = buildScene3D(scene, sceneTime);
             glBindBuffer(GL_ARRAY_BUFFER, vbo);
             glBufferData(GL_ARRAY_BUFFER, GLsizeiptr(vertices.size() * sizeof(Vertex)),
-                         vertices.data(), GL_STATIC_DRAW);
-            updateWindowTitle(window, scene);
+                         vertices.data(), GL_DYNAMIC_DRAW);
         }
 
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) yaw -= 1.1f * dt;

@@ -38,6 +38,6 @@ if(BUILD_OPENGL_VIEWER)
   add_library(glad STATIC deps/glad/src/gl.c)
   target_include_directories(glad PUBLIC deps/glad/include)
 
-  add_executable(bench3d src/viewer3d.cpp)
+  add_executable(bench3d src/viewer3d.cpp src/scene.cpp)
   target_link_libraries(bench3d PRIVATE glad glfw OpenGL::GL)
-endif()
+  endif()
