@@ -27,13 +27,16 @@ struct Vertex {
     Vec3 position;
     Vec3 normal;
     Color color;
+    float emissive; // 0.0 = lit by sun/lamp, 1.0 = unlit/self-illuminated
 };
 
 struct SceneLook {
     Color sky, ground, hill, leaves, trunk;
-    float treeSize, leafDensity, dryness, benchWear;
+    float sunAngle, treeSize, leafDensity, dryness, benchWear;
     float ambient, sunlight, lampPower;
+    bool lampOn, plaque;
     int flowers, dirtPatches, grassTufts;
+    Color skyBottom, sun;
 };
 
 constexpr Color rgb(int r, int g, int b) {
@@ -73,49 +76,67 @@ const std::array<SceneLook, 8> kScenes = [] {
     std::array<SceneLook, 8> scenes{};
     for (size_t i = 0; i < scenes.size(); ++i) {
         const SceneParams& p = kSceneParams[i];
-        scenes[i] = {
-            rgb(p.skyTop.r,p.skyTop.g,p.skyTop.b),
-            rgb(p.ground.r,p.ground.g,p.ground.b),
-            rgb(p.hill.r,p.hill.g,p.hill.b),
-            rgb(p.leaves.r,p.leaves.g,p.leaves.b),
-            rgb(p.trunk.r,p.trunk.g,p.trunk.b),
-            p.treeSize,p.leafDensity,p.darkness,p.benchWear,
-            p.ambient,p.sunlight,p.lampPower,
-            p.flowers,p.dirtPatches,p.grassTufts
+        scenes[i] = SceneLook{
+            rgb(p.skyTop.r, p.skyTop.g, p.skyTop.b),
+            rgb(p.ground.r, p.ground.g, p.ground.b),
+            rgb(p.hill.r, p.hill.g, p.hill.b),
+            rgb(p.leaves.r, p.leaves.g, p.leaves.b),
+            rgb(p.trunk.r, p.trunk.g, p.trunk.b),
+            p.sunAngle, p.treeSize, p.leafDensity, p.darkness, p.benchWear,
+            p.ambient, p.sunlight, p.lampPower,
+            p.lampOn, p.plaque,
+            p.flowers, p.dirtPatches, p.grassTufts,
+            rgb(p.skyBottom.r, p.skyBottom.g, p.skyBottom.b),
+            rgb(p.sun.r, p.sun.g, p.sun.b)
         };
     }
     return scenes;
 }();
 
+Vec3 sunPositionFor(int scene) {
+    const SceneLook& look = kScenes[size_t(scene)];
+    const float sunX = -std::cos(look.sunAngle) * 6.5f;
+    const float sunY = scene == 7 ? 5.8f : 2.5f + std::sin(look.sunAngle) * 3.3f;
+    return {sunX, sunY, -7.25f};
+}
+
 struct Mesh {
     std::vector<Vertex> vertices;
 
-    void triangle(Vec3 a, Vec3 b, Vec3 c, Color color, Vec3 normal) {
+    void triangle(Vec3 a, Vec3 b, Vec3 c, Color color, Vec3 normal, float emissive = 0.f) {
+        triangle(a, b, c, color, color, color, normal, emissive);
+    }
+
+    void triangle(Vec3 a, Vec3 b, Vec3 c, Color ca, Color cb, Color cc, Vec3 normal, float emissive = 0.f) {
         normal = normalized(normal);
-        vertices.push_back({a, normal, color});
-        vertices.push_back({b, normal, color});
-        vertices.push_back({c, normal, color});
+        vertices.push_back({a, normal, ca, emissive});
+        vertices.push_back({b, normal, cb, emissive});
+        vertices.push_back({c, normal, cc, emissive});
     }
 
-    void quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, Color color, Vec3 normal) {
-        triangle(a, b, c, color, normal);
-        triangle(a, c, d, color, normal);
+    void quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, Color color, Vec3 normal, float emissive = 0.f) {
+        quad(a, b, c, d, color, color, color, color, normal, emissive);
     }
 
-    void box(Vec3 center, Vec3 size, Color color) {
+    void quad(Vec3 a, Vec3 b, Vec3 c, Vec3 d, Color ca, Color cb, Color cc, Color cd, Vec3 normal, float emissive = 0.f) {
+        triangle(a, b, c, ca, cb, cc, normal, emissive);
+        triangle(a, c, d, ca, cc, cd, normal, emissive);
+    }
+
+    void box(Vec3 center, Vec3 size, Color color, float emissive = 0.f) {
         const Vec3 h = size * .5f;
         const float x0 = center.x - h.x, x1 = center.x + h.x;
         const float y0 = center.y - h.y, y1 = center.y + h.y;
         const float z0 = center.z - h.z, z1 = center.z + h.z;
-        quad({x0,y1,z0}, {x0,y1,z1}, {x1,y1,z1}, {x1,y1,z0}, color, {0,1,0});
-        quad({x0,y0,z1}, {x0,y0,z0}, {x1,y0,z0}, {x1,y0,z1}, color, {0,-1,0});
-        quad({x0,y0,z1}, {x1,y0,z1}, {x1,y1,z1}, {x0,y1,z1}, color, {0,0,1});
-        quad({x1,y0,z0}, {x0,y0,z0}, {x0,y1,z0}, {x1,y1,z0}, color, {0,0,-1});
-        quad({x0,y0,z0}, {x0,y0,z1}, {x0,y1,z1}, {x0,y1,z0}, color, {-1,0,0});
-        quad({x1,y0,z1}, {x1,y0,z0}, {x1,y1,z0}, {x1,y1,z1}, color, {1,0,0});
+        quad({x0,y1,z0}, {x0,y1,z1}, {x1,y1,z1}, {x1,y1,z0}, color, {0,1,0}, emissive);
+        quad({x0,y0,z1}, {x0,y0,z0}, {x1,y0,z0}, {x1,y0,z1}, color, {0,-1,0}, emissive);
+        quad({x0,y0,z1}, {x1,y0,z1}, {x1,y1,z1}, {x0,y1,z1}, color, {0,0,1}, emissive);
+        quad({x1,y0,z0}, {x0,y0,z0}, {x0,y1,z0}, {x1,y1,z0}, color, {0,0,-1}, emissive);
+        quad({x0,y0,z0}, {x0,y0,z1}, {x0,y1,z1}, {x0,y1,z0}, color, {-1,0,0}, emissive);
+        quad({x1,y0,z1}, {x1,y0,z0}, {x1,y1,z0}, {x1,y1,z1}, color, {1,0,0}, emissive);
     }
 
-    void cylinder(Vec3 a, Vec3 b, float radiusA, float radiusB, Color color, int sides = 16) {
+    void cylinder(Vec3 a, Vec3 b, float radiusA, float radiusB, Color color, int sides = 16, float emissive = 0.f) {
         const Vec3 axis = normalized(b - a);
         const Vec3 reference = std::abs(axis.y) < .9f ? Vec3{0,1,0} : Vec3{1,0,0};
         const Vec3 u = normalized(cross(axis, reference));
@@ -128,14 +149,14 @@ struct Mesh {
             const Vec3 n1 = u * std::cos(a1) + v * std::sin(a1);
             const Vec3 p0 = a + n0 * radiusA, p1 = a + n1 * radiusA;
             const Vec3 q0 = b + n0 * radiusB, q1 = b + n1 * radiusB;
-            triangle(p0, p1, q1, color, n0 + n1);
-            triangle(p0, q1, q0, color, n0 + n1);
-            triangle(a, p1, p0, color, axis * -1.f);
-            triangle(b, q0, q1, color, axis);
+            triangle(p0, p1, q1, color, n0 + n1, emissive);
+            triangle(p0, q1, q0, color, n0 + n1, emissive);
+            triangle(a, p1, p0, color, axis * -1.f, emissive);
+            triangle(b, q0, q1, color, axis, emissive);
         }
     }
 
-    void sphere(Vec3 center, float radius, Color color, int slices = 16, int stacks = 12) {
+    void sphere(Vec3 center, float radius, Color color, int slices = 16, int stacks = 12, float emissive = 0.f) {
         constexpr float pi = 3.14159265359f;
         constexpr float tau = 6.28318530718f;
         for (int row = 0; row < stacks; ++row) {
@@ -155,8 +176,8 @@ struct Mesh {
                 const Vec3 n11{std::cos(p1)*std::cos(t1), std::sin(p1), std::cos(p1)*std::sin(t1)};
                 const Vec3 a = point(p0, t0), b = point(p0, t1);
                 const Vec3 c = point(p1, t1), d = point(p1, t0);
-                triangle(a, b, c, color, n00 + n01 + n11);
-                triangle(a, c, d, color, n00 + n11 + n10);
+                triangle(a, b, c, color, n00 + n01 + n11, emissive);
+                triangle(a, c, d, color, n00 + n11 + n10, emissive);
             }
         }
     }
@@ -206,13 +227,13 @@ void addBranch(Mesh& mesh, Vec3 start, float angle, float length, float radius,
     Vec3 previous = start;
     const int segments = 3;
     Vec3 end = start;
+    float tipAngle = angle;
     for (int segment = 1; segment <= segments; ++segment) {
-        const float segmentLength = length / segments;
         const float bend = .035f * std::sin((id + segment) * 1.7f);
-        const float segmentAngle = angle + bend * segment;
-        end = {start.x + std::sin(segmentAngle) * length * segment / segments,
-               start.y + std::cos(segmentAngle) * length * segment / segments,
-               start.z + std::sin(segmentAngle * 1.31f + id) * .045f};
+        tipAngle = angle + bend * segment;
+        end = {start.x + std::sin(tipAngle) * length * segment / segments,
+               start.y + std::cos(tipAngle) * length * segment / segments,
+               start.z + std::sin(tipAngle * 1.31f + id) * .045f};
         mesh.cylinder(previous, end, radius * (1.f - float(segment - 1) / segments * .32f),
                       radius * (1.f - float(segment) / segments * .32f),
                       look.trunk, 8);
@@ -235,8 +256,8 @@ void addBranch(Mesh& mesh, Vec3 start, float angle, float length, float radius,
     }
     if (depth <= 0) return;
     const float spread = .48f + .12f * random01(id * 23 + depth);
-    addBranch(mesh, end, angle - spread, length * .72f, radius * .68f, depth - 1, id * 2, look);
-    addBranch(mesh, end, angle + spread, length * .72f, radius * .68f, depth - 1, id * 2 + 1, look);
+    addBranch(mesh, end, tipAngle - spread, length * .72f, radius * .68f, depth - 1, id * 2, look);
+    addBranch(mesh, end, tipAngle + spread, length * .72f, radius * .68f, depth - 1, id * 2 + 1, look);
 }
 
 void addTree(Mesh& mesh, const SceneLook& look) {
@@ -244,6 +265,9 @@ void addTree(Mesh& mesh, const SceneLook& look) {
     const float scale = .50f + .68f * look.treeSize;
     const float trunkLength = 1.45f + .85f * look.treeSize;
     const int depth = 1 + int(2.f * look.treeSize + .5f);
+    // Subtle soil mound around tree roots (matches scene.cpp)
+    mesh.cylinder({root.x, 0.f, root.z}, {root.x, .07f, root.z}, .52f, .34f,
+                  mix(look.ground, look.trunk, .35f), 14);
     addBranch(mesh, root, 0.f, trunkLength, .16f * scale, depth, 1, look);
     mesh.cylinder(root, root + Vec3{-.42f, .04f, 0}, .12f, .025f, look.trunk, 8);
     mesh.cylinder(root, root + Vec3{.43f, .04f, .05f}, .12f, .025f, look.trunk, 8);
@@ -253,7 +277,7 @@ Color benchWood(const SceneLook& look) {
     return mix(rgb(47,154,119), rgb(12,18,24), look.ambient < .3f ? .58f : 0.f);
 }
 
-void addBench(Mesh& mesh, const SceneLook& look, int scene) {
+void addBench(Mesh& mesh, const SceneLook& look) {
     const float seatY = .82f;
     const float frontZ = .42f;
     const Color wood = benchWood(look);
@@ -272,12 +296,15 @@ void addBench(Mesh& mesh, const SceneLook& look, int scene) {
     const int patches = std::max(0, int(std::ceil(look.benchWear * 12.f)));
     const Color worn = mix(rgb(135,91,55), rgb(34,30,28), look.ambient < .3f ? .5f : 0.f);
     for (int i = 0; i < patches; ++i) {
-        const float x = -1.78f + 3.56f * random01(scene * 97 + i * 31 + 1);
-        const float z = -.25f + .5f * random01(scene * 101 + i * 37 + 3);
+        const float x = -1.78f + 3.56f * random01(i * 31 + 1);
+        const float z = -.25f + .5f * random01(i * 37 + 3);
         mesh.box({x, seatY + .075f, z}, {.09f,.012f,.07f}, worn);
     }
-    if (scene == 7) mesh.box({1.0f,1.31f,-.355f}, {.38f,.12f,.018f}, rgb(212,184,92));
+    if (look.plaque) mesh.box({1.0f,1.31f,-.355f}, {.38f,.12f,.018f}, rgb(212,184,92));
 }
+
+// Lamp head overhangs forward (+Z) so light illuminates the front of the bench
+constexpr Vec3 kLampBulbPos{4.33f, 3.26f, .58f};
 
 void addLamp(Mesh& mesh, const SceneLook& look) {
     const float x = 4.75f;
@@ -286,13 +313,15 @@ void addLamp(Mesh& mesh, const SceneLook& look) {
     mesh.cylinder({x,.02f,-.18f}, {x,.14f,-.18f}, .26f, .26f, metal, 16);
     mesh.box({x,.13f,-.18f}, {.82f,.09f,.62f}, metal);
     mesh.cylinder({x,3.55f,-.18f}, {x,3.68f,-.18f}, .055f, .055f, metal, 10);
-    mesh.cylinder({x,3.68f,-.18f}, {x-.30f,3.68f,-.18f}, .055f, .045f, metal, 10);
-    mesh.cylinder({x-.30f,3.68f,-.18f}, {x-.42f,3.50f,-.52f}, .045f, .035f, metal, 10);
-    mesh.cylinder({x-.42f,3.50f,-.52f}, {x-.42f,3.38f,-.72f}, .035f, .025f, metal, 10);
-    mesh.sphere({x-.42f,3.43f,-.72f}, .23f, metal, 14, 8);
-    mesh.box({x-.42f,3.33f,-.72f}, {.48f,.10f,.36f}, metal);
-    mesh.sphere({x-.42f,3.26f,-.72f}, .12f,
-                look.lampPower > 0.f ? rgb(255,235,170) : rgb(185,188,183), 10, 6);
+    mesh.cylinder({x,3.68f,-.18f}, {x-.30f,3.68f,.08f}, .055f, .045f, metal, 10);
+    mesh.cylinder({x-.30f,3.68f,.08f}, {x-.42f,3.50f,.38f}, .045f, .035f, metal, 10);
+    mesh.cylinder({x-.42f,3.50f,.38f}, {x-.42f,3.38f,.58f}, .035f, .025f, metal, 10);
+    mesh.sphere({x-.42f,3.43f,.58f}, .23f, metal, 14, 8);
+    mesh.box({x-.42f,3.33f,.58f}, {.48f,.10f,.36f}, metal);
+    const bool lit = look.lampOn || look.lampPower > 0.f;
+    mesh.sphere(kLampBulbPos, .12f,
+                lit ? rgb(255,242,185) : rgb(185,188,183), 10, 6,
+                lit ? 1.0f : 0.0f);
 }
 
 void addGrass(Mesh& mesh, const SceneLook& look, int scene) {
@@ -337,8 +366,11 @@ void addGrass(Mesh& mesh, const SceneLook& look, int scene) {
             const Vec3 tip{x + side * .055f + (random01(seed + blade * 23)-.5f)*.1f,
                            .018f + height * (.7f + .3f * random01(seed + blade * 29 + 1)),
                            z + (random01(seed + blade * 31 + 2)-.5f)*.12f};
-            mesh.triangle({base.x-.018f,base.y,base.z}, {base.x+.018f,base.y,base.z},
-                          tip, color, {0,0,1});
+            const Vec3 p0{base.x - .018f, base.y, base.z};
+            const Vec3 p1{base.x + .018f, base.y, base.z};
+            const Vec3 faceNormal = normalized(cross(p1 - p0, tip - p0));
+            const Vec3 softNormal = normalized(faceNormal + Vec3{0.f, 1.2f, 0.f});
+            mesh.triangle(p0, p1, tip, color, softNormal);
         }
     };
     for (int i = 0; i < look.grassTufts; ++i) {
@@ -368,17 +400,13 @@ void addGrass(Mesh& mesh, const SceneLook& look, int scene) {
 }
 
 void addSky(Mesh& mesh, const SceneLook& look) {
-    const Color horizon = mix(look.sky, rgb(255,224,205), .48f);
+    const Color top = look.sky;
+    const Color bottom = mix(look.skyBottom, rgb(255, 224, 205), .25f);
     const float z = -24.f;
-    constexpr int bands = 12;
-    for (int i = 0; i < bands; ++i) {
-        const float y0 = -5.f + 30.f * float(i) / bands;
-        const float y1 = -5.f + 30.f * float(i + 1) / bands;
-        const float t = float(i) / float(bands - 1);
-        const Color color = mix(horizon, look.sky, t);
-        mesh.quad({-40.f,y0,z}, {40.f,y0,z},
-                  {40.f,y1,z}, {-40.f,y1,z}, color, {0,0,1});
-    }
+    // Emissive = 1.0 keeps the sky gradient crisp and unaffected by scene darkness
+    mesh.quad({-40.f, -5.f, z}, {40.f, -5.f, z},
+              {40.f, 25.f, z}, {-40.f, 25.f, z},
+              bottom, bottom, top, top, {0, 0, 1}, 1.0f);
 }
 
 std::vector<Vertex> buildScene(int scene) {
@@ -390,12 +418,9 @@ std::vector<Vertex> buildScene(int scene) {
     addPath(mesh, look.ground);
     addTree(mesh, look);
     addLamp(mesh, look);
-    addBench(mesh, look, scene);
-    const float angle = std::array<float,8>{.35f,.7f,1.1f,1.57f,2.05f,2.6f,2.95f,1.9f}[size_t(scene)];
-    const float sunX = -std::cos(angle) * 6.5f;
-    const float sunY = scene == 7 ? 5.8f : 2.5f + std::sin(angle) * 3.3f;
-    const Color sun = scene == 7 ? rgb(225,230,245) : rgb(255,224,145);
-    mesh.sphere({sunX,sunY,-7.25f}, .34f, sun, 16, 10);
+    addBench(mesh, look);
+    // Emissive = 1.0 keeps the sun glowing across dusk and night scenes
+    mesh.sphere(sunPositionFor(scene), .38f, look.sun, 48, 32, 1.0f);
     return std::move(mesh.vertices);
 }
 
@@ -430,9 +455,9 @@ Mat4 lookAt(Vec3 eye, Vec3 target, Vec3 up) {
     const Vec3 side = normalized(cross(forward, up));
     const Vec3 correctedUp = cross(side, forward);
     Mat4 m = identity();
-    m[0] = side.x;       m[4] = side.y;       m[8] = side.z;
-    m[1] = correctedUp.x;m[5] = correctedUp.y;m[9] = correctedUp.z;
-    m[2] = -forward.x;   m[6] = -forward.y;   m[10] = -forward.z;
+    m[0] = side.x;        m[4] = side.y;        m[8] = side.z;
+    m[1] = correctedUp.x; m[5] = correctedUp.y; m[9] = correctedUp.z;
+    m[2] = -forward.x;    m[6] = -forward.y;    m[10] = -forward.z;
     m[12] = -dot(side, eye);
     m[13] = -dot(correctedUp, eye);
     m[14] = dot(forward, eye);
@@ -457,11 +482,16 @@ void renderFrame(GLFWwindow* window, GLuint program, GLuint vao, size_t vertexCo
     const Mat4 projection = perspective(.785398f, float(width)/float(height), .1f, 80.f);
     const Mat4 mvp = multiply(projection, view);
     glUniformMatrix4fv(glGetUniformLocation(program, "uMVP"), 1, GL_FALSE, mvp.data());
+
     const SceneLook& look = kScenes[size_t(scene)];
-    glUniform3f(glGetUniformLocation(program, "uLampPosition"), 4.33f, 3.26f, -.72f);
+    const Vec3 sunDir = normalized(sunPositionFor(scene) - target + Vec3{0.f, 0.f, 9.5f});
+    glUniform3f(glGetUniformLocation(program, "uSunDirection"), sunDir.x, sunDir.y, sunDir.z);
+    glUniform3f(glGetUniformLocation(program, "uLampPosition"),
+                kLampBulbPos.x, kLampBulbPos.y, kLampBulbPos.z);
     glUniform1f(glGetUniformLocation(program, "uAmbient"), look.ambient);
     glUniform1f(glGetUniformLocation(program, "uSunlight"), look.sunlight);
-    glUniform1f(glGetUniformLocation(program, "uLampPower"), look.lampPower);
+    glUniform1f(glGetUniformLocation(program, "uLampPower"),
+                (look.lampOn || look.lampPower > 0.f) ? look.lampPower : 0.f);
     glBindVertexArray(vao);
     glDrawArrays(GL_TRIANGLES, 0, GLsizei(vertexCount));
 }
@@ -490,14 +520,17 @@ GLuint createProgram() {
         layout (location = 0) in vec3 aPosition;
         layout (location = 1) in vec3 aNormal;
         layout (location = 2) in vec3 aColor;
+        layout (location = 3) in float aEmissive;
         uniform mat4 uMVP;
         out vec3 vPosition;
         out vec3 vNormal;
         out vec3 vColor;
+        out float vEmissive;
         void main() {
             vPosition = aPosition;
             vNormal = aNormal;
             vColor = aColor;
+            vEmissive = aEmissive;
             gl_Position = uMVP * vec4(aPosition, 1.0);
         })";
     constexpr const char* fragmentSource = R"(
@@ -505,6 +538,8 @@ GLuint createProgram() {
         in vec3 vPosition;
         in vec3 vNormal;
         in vec3 vColor;
+        in float vEmissive;
+        uniform vec3 uSunDirection;
         uniform vec3 uLampPosition;
         uniform float uAmbient;
         uniform float uSunlight;
@@ -512,14 +547,15 @@ GLuint createProgram() {
         out vec4 FragColor;
         void main() {
             vec3 normal = normalize(vNormal);
-            vec3 sunDirection = normalize(vec3(-0.35, 0.85, 0.45));
+            vec3 sunDirection = normalize(uSunDirection);
             float sun = max(dot(normal, sunDirection), 0.0) * uSunlight;
             vec3 toLamp = uLampPosition - vPosition;
             float distanceSquared = max(dot(toLamp, toLamp), 0.01);
             float lamp = max(dot(normal, normalize(toLamp)), 0.0)
-                       * uLampPower / (1.0 + 0.12 * distanceSquared);
-            vec3 lighting = vec3(uAmbient + sun) + vec3(1.0, 0.74, 0.42) * lamp;
-            FragColor = vec4(clamp(vColor * lighting, 0.0, 1.0), 1.0);
+                       * (uLampPower / (1.0 + 0.12 * distanceSquared));
+            vec3 lit = vColor * (vec3(uAmbient + sun) + vec3(1.0, 0.74, 0.42) * lamp);
+            vec3 finalColor = mix(lit, vColor, clamp(vEmissive, 0.0, 1.0));
+            FragColor = vec4(clamp(finalColor, 0.0, 1.0), 1.0);
         })";
     const GLuint vertex = compileShader(GL_VERTEX_SHADER, vertexSource);
     if (!vertex) return 0;
@@ -652,9 +688,12 @@ int main(int argc, char** argv) {
                           reinterpret_cast<void*>(offsetof(Vertex, normal)));
     glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex),
                           reinterpret_cast<void*>(offsetof(Vertex, color)));
+    glVertexAttribPointer(3, 1, GL_FLOAT, GL_FALSE, sizeof(Vertex),
+                          reinterpret_cast<void*>(offsetof(Vertex, emissive)));
     glEnableVertexAttribArray(0);
     glEnableVertexAttribArray(1);
     glEnableVertexAttribArray(2);
+    glEnableVertexAttribArray(3);
     glEnable(GL_DEPTH_TEST);
     glEnable(GL_MULTISAMPLE);
     glDisable(GL_CULL_FACE);
@@ -706,7 +745,7 @@ int main(int argc, char** argv) {
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) yaw -= 1.1f * dt;
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) yaw += 1.1f * dt;
         if (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) pitch = std::min(.9f, pitch + .8f * dt);
-        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) pitch = std::max(.04f, pitch - .8f * dt);
+        if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) pitch = std::max(-.12f, pitch - .8f * dt);
         if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) distance = std::min(28.f, distance + 7.f * dt);
         if (glfwGetKey(window, GLFW_KEY_E) == GLFW_PRESS) distance = std::max(9.f, distance - 7.f * dt);
 

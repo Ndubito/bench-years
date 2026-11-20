@@ -11,7 +11,7 @@ int sceneCount() { return 8; }
 
 namespace {
 
-using Scene = std::vector<Shape>;
+using Scene = std::vector<Shape>;  
 
 constexpr float W = 640.f, H = 360.f;
 constexpr float HORIZON = 242.f;
@@ -293,7 +293,14 @@ void addSky(Scene& v, const Env& e) {
     }
     float sx = W * 0.5f - std::cos(e.sunAng) * 255.f;
     float sy = 305.f - std::sin(e.sunAng) * 255.f;
-    addDisc(v, sx, sy, 15.f, e.sun, 0.5f);
+    // Smooth shaded sphere (concentric discs) instead of a flat disc.
+    uint32_t sunEdge = mix(e.sun, rgb(60, 40, 30), 0.55f);
+    for (float r = 15.f; r >= 0.f; r -= 0.5f) {
+        float t = (15.f - r) / 15.f;
+        float shade = t * t;
+        uint32_t c = mix(e.sun, sunEdge, shade);
+        addDisc(v, sx, sy, r, c, 0.5f);
+    }
 }
 
 // ---------- ground: far/near hills, lawn, path ----------
