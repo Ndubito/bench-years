@@ -1,23 +1,28 @@
-import bpy, json, math, sys, os, glob
+import bpy, json, math, sys, os, glob, re, time
+
+# Reads out/frames/f_NNNN.json and writes out/blender/f_NNNN.png with the SAME number.
+# Numbers with no JSON (the gust frames) are skipped; tools/assemble_film.sh fills them from the C++ images.
 
 
-
-_txt = getattr(getattr(bpy.context, "space_data", None), "text", None)   
-_src = bpy.path.abspath(_txt.filepath) if _txt and _txt.filepath else __file__   
+# ---------------- config ----------------
+# Repo root, found relative to this script (script lives in <repo>/blender/).
+_txt = getattr(getattr(bpy.context, "space_data", None), "text", None)   # Blender GUI: the open text block
+_src = bpy.path.abspath(_txt.filepath) if _txt and _txt.filepath else __file__   # command line (-P): the script file
 BASE = os.path.dirname(os.path.dirname(os.path.abspath(_src)))
 
-JSON_GLOB   = "out/scene*.json"    
-OUT_DIR     = os.environ.get("BENCH_RENDER_OUT",
-                             os.path.join(os.path.expanduser("~"), "bench-years-renders"))
+JSON_GLOB   = "out/frames/f_*.json"   # written by ./bench --frames ... --json
+OUT_DIR     = os.environ.get("BENCH_RENDER_OUT", os.path.join(BASE, "out", "blender"))   # where assemble_film.sh looks
 COLOR_ORDER = "ABGR"
 Z_STEP      = 0.01
-LINE_WIDTH  = 1.0                   
-FRAME_START = 1                     
-RENDER_NOW  = False                 # render the whole animation as soon as the script runs
+LINE_WIDTH  = 1.0                     # "line" shapes are drawn as quads this many pixels wide
+
+SKIP_FIRST    = 0       # skip this many frames from the start (to time a busier part of the animation)
+MAX_FRAMES    = 10      # 10 = timing test (output goes to OUT_DIR\test). Set to None for the full render.
+SKIP_EXISTING = True    # full render only: don't re-render PNGs that already exist (resume after stopping)
+# ----------------------------------------
 
 
-
-if "--" in sys.argv:  
+if "--" in sys.argv:  # command line only: blender -b -P script.py -- "<glob>" "<outdir>"
     extra = sys.argv[sys.argv.index("--") + 1:]
     if len(extra) >= 1: JSON_GLOB = extra[0]
     if len(extra) >= 2: OUT_DIR = extra[1]
@@ -89,13 +94,13 @@ def strip_quads(pts, w0, w1):
     total = sum(lengths)
     quads, acc = [], 0.0
     for ((x0, y0), (x1, y1)), L in zip(segs, lengths):
-        if L < 1e-9:          # zero-length segment
+        if L < 1e-9:          # zero-length segment, nothing to draw
             continue
         t0, t1 = acc / total, (acc + L) / total
         acc += L
-        ha = (w0 + (w1 - w0) * t0) / 2.0      
-        hb = (w0 + (w1 - w0) * t1) / 2.0    
-        nx, ny = -(y1 - y0) / L, (x1 - x0) / L   
+        ha = (w0 + (w1 - w0) * t0) / 2.0     # half-width at segment start
+        hb = (w0 + (w1 - w0) * t1) / 2.0     # half-width at segment end
+        nx, ny = -(y1 - y0) / L, (x1 - x0) / L   # unit normal of the segment
         quads.append([
             (x0 + nx * ha, y0 + ny * ha),
             (x1 + nx * hb, y1 + ny * hb),
@@ -111,7 +116,7 @@ def clear_scene():
     for m in list(bpy.data.meshes):    bpy.data.meshes.remove(m)
     for m in list(bpy.data.materials): bpy.data.materials.remove(m)
     for c in list(bpy.data.cameras):   bpy.data.cameras.remove(c)
-    _mats.clear()   
+    _mats.clear()   # the cache points at the materials we just deleted, so it must be reset too
 
 def build(data):
     W, H = data["width"], data["height"]
@@ -167,62 +172,88 @@ def build(data):
     except Exception: pass
     return sc
 
+_NUM = re.compile(r"f_(\d+)\.json$", re.IGNORECASE)
+
 def list_frames():
-    """Read only (scene, frame, path) for every matching JSON, sorted in playback order:
-    all of scene 0's frames, then scene 1's, and so on."""
+    """Find every f_NNNN.json and return (number, digits_as_written, path), sorted by number.
+    Numbers with no JSON (the gust frames) simply don't appear, so they are skipped."""
     frames = []
     for path in glob.glob(absp(JSON_GLOB)):
-        with open(path) as fh:
-            d = json.load(fh)
-        frames.append((d.get("scene", 0), d.get("frame", 0), path))
-    frames.sort(key=lambda e: (e[0], e[1], e[2]))
+        m = _NUM.search(os.path.basename(path))
+        if not m:
+            print(f"[warn] ignoring {path}: name is not f_NNNN.json")
+            continue
+        frames.append((int(m.group(1)), m.group(1), path))
+    frames.sort()
     return frames
 
-# 
-if not frames:
-    # 
-    raise RuntimeError(f"No JSON files matched: {absp(JSON_GLOB)}")
+def fmt_gaps(numbers):
+    """Human-readable list of the frame numbers missing between the first and last JSON."""
+    gaps = [(a + 1, b - 1) for a, b in zip(numbers, numbers[1:]) if b - a > 1]
+    if not gaps:
+        return "none"
+    return ", ".join(f"{a}" if a == b else f"{a}-{b}" for a, b in gaps)
 
-os.makedirs(OUT_DIR, exist_ok=True)
-_shown = {"n": None}    # index of the JSON currently built in the scene
-
-def _on_frame(scene, depsgraph=None):
-    """Runs on every frame change (scrubbing, playback and Render Animation): rebuilds the scene
-    from the JSON for that timeline frame. Memory stays flat because build() clears the old frame."""
-    n = scene.frame_current - FRAME_START
-    if n < 0 or n >= len(frames) or _shown["n"] == n:
-        return
-    try:
-        with open(frames[n][2]) as fh:
-            data = json.load(fh)
-        build(data)
-        _shown["n"] = n
-    except Exception as e:
-        _shown["n"] = None
-        print(f"[error] timeline frame {n + FRAME_START} ({frames[n][2]}): {e}")
-
-
+# ---- main ----
+# Drop the frame-change handler the old timeline script may have left registered in this Blender session
 for h in list(bpy.app.handlers.frame_change_pre):
     if getattr(h, "__name__", "") == "_on_frame":
         bpy.app.handlers.frame_change_pre.remove(h)
-bpy.app.handlers.frame_change_pre.append(_on_frame)
 
-sc = bpy.context.scene
-sc.frame_start = FRAME_START
-sc.frame_end = FRAME_START + len(frames) - 1
-sc.render.filepath = os.path.join(OUT_DIR, "frame_")     # Blender appends the frame number: frame_0001.png
+if bpy.data.filepath and not bpy.app.background:
+    print(f"[warn] this script deletes every object in the open file ({bpy.data.filepath}). "
+          f"Don't save it afterwards; use File > New first if it holds work you care about.")
 
+all_frames = list_frames()
+if not all_frames:
+    # RuntimeError (not SystemExit) so Blender shows an error instead of closing itself
+    raise RuntimeError(f"No f_NNNN.json files matched: {absp(JSON_GLOB)}  (run ./bench --frames ... --json first)")
 
-sc.timeline_markers.clear()
-prev_scene = None
-for n, (scene_i, frame_i, path) in enumerate(frames):
-    if scene_i != prev_scene:
-        sc.timeline_markers.new(f"scene{scene_i}", frame=FRAME_START + n)
-        prev_scene = scene_i
+print(f"Found {len(all_frames)} JSON frames, numbers {all_frames[0][0]}-{all_frames[-1][0]}")
+print(f"Missing numbers (no JSON, e.g. gust frames): {fmt_gaps([n for n, _, _ in all_frames])}")
 
-sc.frame_current = FRAME_START
-_on_frame(sc)
-print(f"Timeline ready: {len(frames)} frames, {FRAME_START}-{sc.frame_end}. Output: {OUT_DIR}")
+frames = all_frames[SKIP_FIRST:]
+if MAX_FRAMES is not None:
+    frames = frames[:MAX_FRAMES]
+if not frames:
+    raise RuntimeError("SKIP_FIRST / MAX_FRAMES left no frames to render")
 
-if RENDER_NOW:
-    bpy.ops.render.render(animation=True)
+test_run = MAX_FRAMES is not None
+out_dir = os.path.join(OUT_DIR, "test") if test_run else OUT_DIR
+os.makedirs(out_dir, exist_ok=True)
+print(f"Output folder: {out_dir}")
+
+times, failed, skipped = [], [], 0
+for k, (num, digits, path) in enumerate(frames):
+    out_png = os.path.join(out_dir, f"f_{digits}.png")    # same number as f_NNNN.json
+    # resume only on full runs, so repeating the timing test always renders and times real frames
+    if SKIP_EXISTING and not test_run and os.path.exists(out_png):
+        skipped += 1
+        continue
+    t0 = time.perf_counter()
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+        sc = build(data)
+        sc.render.filepath = out_png
+        bpy.ops.render.render(write_still=True)
+    except Exception as e:
+        failed.append((path, e))
+        print(f"[error] {os.path.basename(path)}: {e}")
+        continue
+    dt = time.perf_counter() - t0
+    times.append(dt)
+    print(f"[{k + 1}/{len(frames)}] {os.path.basename(path)} -> {out_png}   {dt:.2f}s")
+
+if times:
+    first, rest = times[0], times[1:]
+    avg = sum(rest) / len(rest) if rest else first
+    print("---- timing ----")
+    print(f"frames rendered : {len(times)}  (skipped existing: {skipped}, failed: {len(failed)})")
+    print(f"first frame     : {first:.2f}s  (includes startup)")
+    print(f"average, others : {avg:.2f}s/frame")
+    print(f"total           : {sum(times):.1f}s")
+    print(f"full render est.: {avg * len(all_frames) / 60:.1f} min for {len(all_frames)} JSON frames")
+
+if failed:
+    raise RuntimeError(f"{len(failed)} frames failed, first: {failed[0][0]}: {failed[0][1]}")
