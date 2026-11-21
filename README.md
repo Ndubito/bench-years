@@ -19,6 +19,17 @@ Windows (Git Bash or MSYS2 UCRT64), Linux or Mac:
 
 The whole film at 24 fps is about 1,680 frames and 1.1 GB of `.ppm` files. Delete `out/frames` when done.
 
+### 3D Environment Viewer (OpenGL)
+  MSYS2 UCRT64 / Windows (after installing mingw-w64-ucrt-x86_64-glfw)
+    g++ -std=c++17 -O2 -Wall src/viewer3d.cpp deps/glad/src/gl.c -Isrc -Ideps/glad/include -lglfw3 -lopengl32 -lgdi32 -o bench3d.exe
+
+    # Linux
+    g++ -std=c++17 -O2 -Wall src/viewer3d.cpp deps/glad/src/gl.c -Isrc -Ideps/glad/include -lglfw -lGL -ldl -lpthread -o bench3d
+
+    ./bench3d                                     interactive viewer (Left/Right: scenes 0-7, WASD: orbit, Q/E: zoom, P: screenshot)
+    ./bench3d --capture 0 out/scene3d-0.ppm       headless capture of a single scene
+   
+
 ## Making the film
 
 1. `mkdir -p out/frames out/blender`, then `./bench --frames out/frames/f 24 --json`
@@ -59,5 +70,4 @@ The whole film at 24 fps is about 1,680 frames and 1.1 GB of `.ppm` files. Delet
 
 ## Changes
 
-- C: `vec.h` now has `Mat3::operator*`, `translate`, `rotate`, `scale` and a `MatrixStack` (push, pop, translate, rotate, scale, apply).
-- Tested with a two-segment swinging arm (`out/matrix_test.png`).
+- D (Alan): Upgraded environment details across all 8 scenes in `scene.cpp` (grass tufts, flowers, dirt patches, bench wear, lamp light beam) and added 3D environment viewer (`viewer3d.cpp`) with fixed emissive sky/sun and directional lamp lighting.
