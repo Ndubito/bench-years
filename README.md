@@ -20,14 +20,18 @@ Windows (Git Bash or MSYS2 UCRT64), Linux or Mac:
 The whole film at 24 fps is about 1,680 frames and 1.1 GB of `.ppm` files. Delete `out/frames` when done.
 
 ### 3D Environment Viewer (OpenGL)
-  MSYS2 UCRT64 / Windows (after installing mingw-w64-ucrt-x86_64-glfw)
-    g++ -std=c++17 -O2 -Wall src/viewer3d.cpp deps/glad/src/gl.c -Isrc -Ideps/glad/include -lglfw3 -lopengl32 -lgdi32 -o bench3d.exe
 
-    # Linux
-    g++ -std=c++17 -O2 -Wall src/viewer3d.cpp deps/glad/src/gl.c -Isrc -Ideps/glad/include -lglfw -lGL -ldl -lpthread -o bench3d
+Windows, in the MSYS2 UCRT64 window (after `pacman -S mingw-w64-ucrt-x86_64-glfw`):
+
+    g++ -std=c++17 -O2 -Wall src/viewer3d.cpp src/scene.cpp deps/glad/src/gl.c -Isrc -Ideps/glad/include -lglfw3 -lopengl32 -lgdi32 -o bench3d.exe
+
+Linux:
+
+    g++ -std=c++17 -O2 -Wall src/viewer3d.cpp src/scene.cpp deps/glad/src/gl.c -Isrc -Ideps/glad/include -lglfw -lGL -ldl -lpthread -o bench3d
+
+Run:
 
     ./bench3d                                     interactive viewer (Left/Right: scenes 0-7, WASD: orbit, Q/E: zoom, P: screenshot)
-    ./bench3d --capture 0 out/scene3d-0.ppm       headless capture of a single scene
    
 
 ## Making the film
