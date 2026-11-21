@@ -23,11 +23,11 @@ The whole film at 24 fps is about 1,680 frames and 1.1 GB of `.ppm` files. Delet
 
 Windows, in the MSYS2 UCRT64 window (after `pacman -S mingw-w64-ucrt-x86_64-glfw`):
 
-    g++ -std=c++17 -O2 -Wall src/viewer3d.cpp src/scene.cpp deps/glad/src/gl.c -Isrc -Ideps/glad/include -lglfw3 -lopengl32 -lgdi32 -o bench3d.exe
+    g++ -std=c++17 -O2 -Wall viewer/viewer3d.cpp src/scene.cpp deps/glad/src/gl.c -Isrc -Ideps/glad/include -lglfw3 -lopengl32 -lgdi32 -o bench3d.exe
 
 Linux:
 
-    g++ -std=c++17 -O2 -Wall src/viewer3d.cpp src/scene.cpp deps/glad/src/gl.c -Isrc -Ideps/glad/include -lglfw -lGL -ldl -lpthread -o bench3d
+    g++ -std=c++17 -O2 -Wall viewer/viewer3d.cpp src/scene.cpp deps/glad/src/gl.c -Isrc -Ideps/glad/include -lglfw -lGL -ldl -lpthread -o bench3d
 
 Run:
 
