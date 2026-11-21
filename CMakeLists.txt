@@ -12,6 +12,7 @@ add_executable(bench
   src/raster.cpp
   src/render.cpp
   src/scene.cpp
+  src/scenes_late.cpp
   src/export_json.cpp
   src/film.cpp)
 if(MSVC)
