@@ -38,7 +38,7 @@ inline float blinkAt(float t) { return std::fmod(t * .83f, 3.3f) < .13f ? 1.f : 
 // Colour grading per scene (the reference tints dusk and night).
 inline Tint tintFor(int scene) {
     if (scene == 6) return Tint{.92f, .86f, .96f};
-    if (scene == 7) return Tint{.4f, .48f, .78f};
+    if (scene == 7) return Tint{.6f, .65f, .85f}; // lighter than the sky so he reads against the path
     return Tint{};
 }
 
@@ -178,7 +178,20 @@ inline void night(std::vector<Shape>& v, const Tint& tn, float t) {
     m.x = x; m.gy = pathY(x) - 6; m.s = 1; m.facing = face; m.moving = dt > 0; m.phase = (x - 428) * .13f; m.amp = .42f;
     m.lean = .2f; m.bow = t < 2.4f ? .3f : .1f; m.cane = true; m.caneC = tn(0x5a3a22); m.z = 8.f;
     buildWalking(m, v);
-    // The falling leaf is part of the environment, so it stays in scene.cpp.
+    // One leaf drifts down from t = 5 s and lands on her side of the bench at t = 7 s.
+    if (t > 5.f) {
+        const float u = clamp01((t - 5.f) / 2.f);
+        const float lx = lerp(300, 338, u) + (u < 1 ? std::sin(u * 11.f) * 16.f * (1 - u) : 0.f);
+        const float ly = lerp(140, 262, u * u * .6f + u * .4f);
+        const float rot = u < 1 ? u * 9.f : .5f, sz = 5.2f;
+        const float c = std::cos(rot), sn = std::sin(rot);
+        const Vec2 base[6] = {{-1, 0}, {-.45f, -.55f}, {.5f, -.5f}, {1, 0}, {.5f, .5f}, {-.45f, .55f}};
+        std::vector<Vec2> P;
+        for (const Vec2& b : base) P.push_back({lx + (b.x * c - b.y * sn) * sz, ly + (b.x * sn + b.y * c) * sz});
+        Pen pen(v, 8.5f, 1.f);
+        pen.poly(P, tn(0xb5561f));
+        pen.line({lx - c * sz * .9f, ly - sn * sz * .9f}, {lx + c * sz * .9f, ly + sn * sz * .9f}, tn(0x8a3d1c));
+    }
 }
 
 }  // namespace late
