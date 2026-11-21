@@ -6,6 +6,7 @@ out/*.ppm
 out/frames/
 out/blender/
 out/final/
+out/*.json
 out/*.png
 *.mp4
 *.log
