@@ -37,6 +37,8 @@ struct Pen {
     void limb(Vec2 a, Vec2 b, float w, uint32_t col) {
         Shape& s = add(Kind::Strip, col); s.pts = {a, b}; s.w0 = w; s.w1 = w;
     }
+    // One pixel in the rasterizer (radius below 0.5 rounds to 0). A radius-1 disc is a "+".
+    void dot(Vec2 p, uint32_t col) { disc(p, 0.45f, col); }
     void line(Vec2 a, Vec2 b, uint32_t col) {
         Shape& s = add(Kind::Line, col); s.pts = {a, b}; s.w0 = 1; s.w1 = 1;
     }
@@ -48,6 +50,15 @@ inline std::vector<Vec2> xpoly(const MatrixStack& ms, std::initializer_list<Vec2
     for (const Vec2& p : l) v.push_back(ms.apply(p));
     return v;
 }
+
+// Colour grading for a scene (dusk and night multiply the figure colours too).
+struct Tint {
+    float r = 1, g = 1, b = 1;
+    uint32_t operator()(uint32_t hex) const {   // hex is 0xRRGGBB
+        auto ch = [](uint32_t v, float k) { float x = float(v) * k + .5f; return uint8_t(x > 255.f ? 255.f : x); };
+        return rgb(ch((hex >> 16) & 255, r), ch((hex >> 8) & 255, g), ch(hex & 255, b));
+    }
+};
 
 enum class Hair { Short, Puff, Bun, Twin, Pony, Bald };
 
@@ -61,10 +72,14 @@ struct Look {
     bool hasScarf = false; uint32_t scarf = rgb(0xc9, 0x3b, 0x3b);
     float hs = 1;  // head scale (kids use about 1.35)
 };
-inline Look makeMan()   { return Look(); }
-inline Look makeWoman() {
+inline Look makeMan(const Tint& c = Tint()) {
+    Look l;
+    l.skin = c(0x8c5a3c); l.hairC = c(0x1b1410); l.shoe = c(0x2a2430); l.bottom = c(0x2e3a4d); l.top = c(0x4a7fb5);
+    return l;
+}
+inline Look makeWoman(const Tint& c = Tint()) {
     Look l; l.female = true; l.hair = Hair::Puff;
-    l.skin = rgb(0xa8, 0x71, 0x4d); l.bottom = rgb(0xa8, 0x71, 0x4d); l.top = rgb(0xe0, 0x60, 0x7e);
+    l.skin = c(0xa8714d); l.hairC = c(0x1b1410); l.shoe = c(0x2a2430); l.bottom = c(0xa8714d); l.top = c(0xe0607e);
     l.shortSleeve = true; return l;
 }
 
@@ -134,8 +149,11 @@ inline SeatedOut buildSeated(const SeatedPose& P, std::vector<Shape>& out) {
     if (h == Hair::Bald) for (int i = 0; i < 2; ++i)
         pen.disc(q((i ? 1.f : -1.f) * hr * .88f, -.1f * hr), std::max(1.f, hr * .22f), L.hairC);
     const uint32_t EYE = rgb(0x1a, 0x14, 0x10), MOUTH = rgb(0x4a, 0x1c, 0x16);
-    for (int i = 0; i < 2; ++i)
-        pen.disc(q((i ? 1.f : -1.f) * hr * .38f + P.turn * hr * .3f, .22f * hr), (P.blink ? .5f : 1.f) * s, EYE);
+    for (int i = 0; i < 2; ++i) {
+        float ex = (i ? 1.f : -1.f) * hr * .38f + P.turn * hr * .3f, ey = .22f * hr;
+        if (P.blink) pen.line(q(ex - .8f, ey), q(ex + .8f, ey), EYE);   // closed eye: 2 px
+        else         pen.dot(q(ex, ey), EYE);                            // open eye: 1 px
+    }
     if (P.smile) {
         Vec2 a = q(-hr * .3f, .58f * hr), b = q(0, .76f * hr), c = q(hr * .3f, .58f * hr);
         if (P.open) pen.disc({b.x, b.y - 1}, std::max(1.f, hr * .2f), MOUTH);
@@ -164,7 +182,7 @@ inline SeatedOut buildSeated(const SeatedPose& P, std::vector<Shape>& out) {
 struct WalkPose {
     Look look;
     float x = 0, gy = 0, s = 1;     // feet x, ground y, scale
-    int facing = 1;                 // +1 right, -1 left
+    float facing = 1;               // +1 right, -1 left, values between = turning around
     bool moving = true; float phase = 0, amp = .6f;
     float lean = 0, bow = 0;
     bool hasRaise = false; float raise = 0;   // raised front arm
@@ -232,7 +250,7 @@ inline Vec2 buildWalking(const WalkPose& P, std::vector<Shape>& out) {
     pen.disc(fc, h == Hair::Puff ? hr * .93f : hr - .7f, L.skin);
     if (h == Hair::Bun) pen.disc(q(-.7f * hrL, -.95f * hrL), hr * .4f, L.hairC);
     pen.poly(xpoly(ms, {{hrL * .9f, -hrL * .05f}, {hrL + 2.2f, hrL * .28f}, {hrL * .85f, hrL * .42f}}), L.skin);
-    pen.disc(q(hrL * .5f, -.05f * hrL), 1.f * s, rgb(0x1a, 0x14, 0x10));
+    pen.dot(q(hrL * .5f, -.05f * hrL), rgb(0x1a, 0x14, 0x10));
     Vec2 head = ms.apply({0, 0});
     ms.pop();
     return head;
