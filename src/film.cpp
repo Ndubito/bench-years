@@ -10,8 +10,9 @@
 namespace {
 
 // Scene and gust lengths in seconds, taken from the JavaScript reference (story.js: D and TD).
-const float kSceneLen[8] = { 6.f, 6.f, 6.f, 6.f, 6.5f, 7.f, 6.5f, 9.f };
-const float kGustLen[7]  = { 2.2f, 2.2f, 2.2f, 2.2f, 2.2f, 2.6f, 3.2f };
+
+const float kSceneLen[8] = { 11.f, 11.5f, 12.f, 12.f, 13.f, 14.f, 14.5f, 16.f };
+const float kGustLen[7]  = { 2.8f, 2.8f, 3.0f, 3.0f, 3.2f, 3.4f, 3.8f };
 
 // Leaf colours for the gust leaving each scene: dark, mid, light. Green early, autumn late.
 const uint32_t kLeaf[7][3] = {
