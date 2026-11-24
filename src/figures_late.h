@@ -50,37 +50,49 @@ inline uint32_t mixBlack(uint32_t c, float k) {   // darken by k, keep alpha
 // The cane leaning on the bench (scenes 6 and 7).
 inline void cane(std::vector<Shape>& v, const Tint& tn, float z) {
     Pen pen(v, z, 1.f);
-    pen.limb({284, 261}, {276, 302}, 2.6f, tn(0x5a3a22));
-    pen.disc({284, 260}, 2.6f, tn(0x5a3a22));
+    pen.limb({276, 261}, {268, 302}, 2.6f, tn(0x5a3a22));
+    pen.disc({276, 260}, 2.6f, tn(0x5a3a22));
 }
 
 struct ElderOpts {
     float hunch = 0, mLean = 0, mTilt = 0, mTurn = 0; bool mSmile = false; float wAlpha = 1;
-    bool hasWHand = false; Vec2 wHand{343, 268};
+    bool hasWHand = false; Vec2 wHand{351, 268};
 };
 
 // The old couple on the bench. Returns nothing; the man is drawn first, then the woman.
 inline void elders(std::vector<Shape>& v, const Tint& tn, float t, const ElderOpts& o, float z) {
     SeatedPose m; m.look = makeMan(tn);
-    m.look.top = tn(0x7a5a45); m.look.bottom = tn(0x3a3f4d); m.look.hair = Hair::Bald; m.look.hairC = tn(0xc9ccd2);
-    m.x = 306; m.y = kSeat; m.s = 1; m.lean = o.mLean; m.tilt = o.mTilt; m.hunch = o.hunch; m.turn = o.mTurn;
-    m.hasHandR = true; m.handR = {323, 269}; m.hasHandL = true; m.handL = {285, 262};
+    m.look.top = tn(0xc4a47c); m.look.jacket = tn(0x8c5828); // collared shirt + warm brown cardigan
+    m.look.bottom = tn(0x2c2826); m.look.hair = Hair::Bald; m.look.hairC = tn(0xc9ccd2);
+    m.x = 298; m.y = kSeat; m.s = 1; m.lean = o.mLean; m.tilt = o.mTilt; m.hunch = o.hunch; m.turn = o.mTurn;
+    m.hasHandR = true; m.handR = {321, 269}; m.hasHandL = true; m.handL = {277, 262};
     m.blink = blinkAt(t) > 0; m.smile = o.mSmile; m.bounce = .3f * std::sin(t * 1.6f); m.z = z;
     buildSeated(m, v);
     if (o.wAlpha > .02f) {
         SeatedPose w; w.look = makeWoman(tn);
-        w.look.top = tn(0x8a5a8f); w.look.hair = Hair::Bun; w.look.hairC = tn(0xcfd2dc);
+        w.look.top = tn(0x6e3b5e); w.look.bottom = tn(0x7a4b3a); // plum cardigan + patterned skirt
+        w.look.shortSleeve = false;
+        w.look.hair = Hair::Bun; w.look.hairC = tn(0xcfd2dc);
         w.look.hasScarf = true; w.look.scarf = tn(0xc93b3b);
-        w.x = 336; w.y = kSeat; w.s = .97f; w.lean = -.06f; w.tilt = -.07f; w.hunch = o.hunch;
-        w.hasHandL = true; w.handL = {323, 269}; w.hasHandR = true; w.handR = o.hasWHand ? o.wHand : Vec2{343, 268};
+        w.x = 344; w.y = kSeat; w.s = .97f; w.lean = -.06f; w.tilt = -.07f; w.hunch = o.hunch;
+        w.hasHandL = true; w.handL = {321, 269}; w.hasHandR = true; w.handR = o.hasWHand ? o.wHand : Vec2{351, 268};
         w.blink = blinkAt(t + 1.3f) > 0; w.smile = true; w.alpha = o.wAlpha;
         w.bounce = .3f * std::sin(t * 1.6f + 1.f); w.z = z + 1.f;
         buildSeated(w, v);
     }
 }
 
-/* ---- scene 5 (index 4): three on a bench ---- */
+/* ---- scene 5 (index 4): Kenyan parents & child in the park + background NPC ---- */
 inline void parents(std::vector<Shape>& v, const Tint& tn, float t) {
+    // Background park stroller
+    {
+        float xNpc = 670.f - t * 48.f;
+        WalkPose npc; npc.look = makeMan(tn); npc.look.top = tn(0x4a7fb5);
+        npc.x = xNpc; npc.gy = 288.f; npc.s = 0.84f; npc.facing = -1;
+        npc.moving = true; npc.phase = t * 5.8f; npc.z = 3.6f;
+        buildWalking(npc, v);
+    }
+
     const bool away = t > 1.6f;
     const float look = t > 2.1f ? (t < 3.8f ? .9f : .6f) : 0.f;
     SeatedPose a; a.look = makeMan(tn); a.look.top = tn(0x5c7c4a); a.look.bottom = tn(0x2b3447);
@@ -88,15 +100,15 @@ inline void parents(std::vector<Shape>& v, const Tint& tn, float t) {
     a.hasHandR = true; a.handR = away ? Vec2{292, 268} : Vec2{311, 250};
     a.blink = blinkAt(t) > 0; a.smile = true; a.bounce = .4f * std::sin(t * 2.f); a.z = 7.f;
     buildSeated(a, v);
-    SeatedPose b; b.look = makeWoman(tn); b.look.top = tn(0xc46a2f); b.look.hasScarf = true; b.look.scarf = tn(0xc93b3b);
+    SeatedPose b; b.look = makeWoman(tn); b.look.top = tn(0xc46a2f); b.look.hair = Hair::Bun;
+    b.look.hasScarf = true; b.look.scarf = tn(0xc93b3b);
     b.x = 360; b.y = kSeat; b.s = .98f; b.lean = away ? -.03f : -.06f; b.tilt = -.05f; b.turn = -look;
     b.hasHandL = true; b.handL = away ? Vec2{353, 268} : Vec2{329, 250};
     b.blink = blinkAt(t + 1.f) > 0; b.smile = true; b.bounce = .4f * std::sin(t * 2.f + 1.f); b.z = 8.f;
     buildSeated(b, v);
 
-    // the child: sits, hops down, runs off, runs back and waves
-    Look kid = makeMan(tn); kid.top = tn(0xf2c14e); kid.bottom = tn(0x3b4a6b); kid.hs = 1.4f;
-    const float gy = 316.f, s = .5f, hh = gy - 41.f * s;
+    Look kid = makeMan(tn); kid.top = tn(0xf4d03f); kid.bottom = tn(0x233554); kid.shortSleeve = true; kid.hs = 1.38f;
+    const float gy = 316.f, s = .52f, hh = gy - 41.f * s;
     if (t < 1.6f) {
         float w = t * 6.f;
         SeatedPose c; c.look = kid; c.x = 320; c.y = kSeat; c.s = s;
@@ -128,7 +140,7 @@ inline void goldenHour(std::vector<Shape>& v, const Tint& tn, float t) {
     cane(v, tn, 7.f);
     const bool wave = t > 3.f && t < 4.8f;
     ElderOpts o; o.hunch = .7f; o.mLean = .05f; o.mTilt = .06f; o.mTurn = wave ? .8f : 0.f; o.mSmile = wave; o.wAlpha = 1;
-    if (wave) { o.hasWHand = true; o.wHand = {358, 233 + 5 * std::sin(t * 9.f)}; }
+    if (wave) { o.hasWHand = true; o.wHand = {366, 233 + 5 * std::sin(t * 9.f)}; }
     elders(v, tn, t, o, 7.5f);
 
     float xa, face; bool moving = true, raised = false;
@@ -158,9 +170,9 @@ inline void passing(std::vector<Shape>& v, const Tint& tn, float t) {
     if (sa > .02f) {      // her scarf stays behind a while
         Pen pen(v, 7.2f, sa);
         uint32_t c = tn(0xc93b3b), cd = mixBlack(c, .25f);
-        pen.poly({{326, 261}, {348, 261}, {353, 266}, {323, 266}}, c);
-        pen.poly({{326, 266}, {337, 266}, {335, 286}, {327, 286}}, cd);
-        pen.poly({{340, 266}, {350, 266}, {352, 280}, {343, 281}}, c);
+        pen.poly({{334, 261}, {356, 261}, {361, 266}, {331, 266}}, c);
+        pen.poly({{334, 266}, {345, 266}, {343, 286}, {335, 286}}, cd);
+        pen.poly({{348, 266}, {358, 266}, {360, 280}, {351, 281}}, c);
     }
     float look = easeInOut((t - 1.6f) / .8f) * (1.f - .6f * easeInOut((t - 4.f) / 1.5f));
     ElderOpts o; o.hunch = .7f + .3f * easeInOut((t - 3.f) / 2.f); o.mLean = .05f + .04f * easeInOut((t - 3.f) / 2.f);
@@ -169,29 +181,64 @@ inline void passing(std::vector<Shape>& v, const Tint& tn, float t) {
 }
 
 /* ---- scene 8 (index 7): night, he walks away ---- */
+/* ---- scene 8 (index 7, 16.0s): night, he looks back, walks away slowly, leaf hits ground ---- */
+/* ---- scene 8 (index 7, 16.0s): night, he looks back, walks away slowly, leaf hits ground ---- */
+/* ---- scene 8 (index 7, 16.0s): night, old man walks off, last leaf on tree falls to ground ---- */
 inline void night(std::vector<Shape>& v, const Tint& tn, float t) {
-    const float face = lerp(-1, 1, easeInOut((t - 2.4f) / .5f));
-    const float dt = std::max(0.f, t - 2.9f);
-    const float x = 428 + (dt > 0 ? std::pow(dt, 1.15f) * 48.f : 0.f);
-    WalkPose m; m.look = makeMan(tn); m.look.top = tn(0x6a4f3f); m.look.bottom = tn(0x3a3f4d);
-    m.look.hair = Hair::Bald; m.look.hairC = tn(0xc9ccd2);
-    m.x = x; m.gy = pathY(x) - 6; m.s = 1; m.facing = face; m.moving = dt > 0; m.phase = (x - 428) * .13f; m.amp = .42f;
-    m.lean = .2f; m.bow = t < 2.4f ? .3f : .1f; m.cane = true; m.caneC = tn(0x5a3a22); m.z = 8.f;
-    buildWalking(m, v);
-    // One leaf drifts down from t = 5 s and lands on her side of the bench at t = 7 s.
-    if (t > 5.f) {
-        const float u = clamp01((t - 5.f) / 2.f);
-        const float lx = lerp(300, 338, u) + (u < 1 ? std::sin(u * 11.f) * 16.f * (1 - u) : 0.f);
-        const float ly = lerp(140, 262, u * u * .6f + u * .4f);
-        const float rot = u < 1 ? u * 9.f : .5f, sz = 5.2f;
-        const float c = std::cos(rot), sn = std::sin(rot);
-        const Vec2 base[6] = {{-1, 0}, {-.45f, -.55f}, {.5f, -.5f}, {1, 0}, {.5f, .5f}, {-.45f, .55f}};
-        std::vector<Vec2> P;
-        for (const Vec2& b : base) P.push_back({lx + (b.x * c - b.y * sn) * sz, ly + (b.x * sn + b.y * c) * sz});
-        Pen pen(v, 8.5f, 1.f);
-        pen.poly(P, tn(0xb5561f));
-        pen.line({lx - c * sz * .9f, ly - sn * sz * .9f}, {lx + c * sz * .9f, ly + sn * sz * .9f}, tn(0x8a3d1c));
+    // 0.0..2.5s: looks at the bench one last time; 2.5..3.3s: turns; 3.3..8.2s: walks off slowly
+    const float face = lerp(-1.f, 1.f, easeInOut((t - 2.5f) / 0.8f));
+    const float dt = std::max(0.f, t - 3.3f);
+    const float x = 428.f + (dt > 0.f ? std::pow(dt, 1.12f) * 56.f : 0.f);
+
+    if (x < 765.f) {
+        WalkPose m;
+        m.look = makeMan(tn);
+        m.look.top = tn(0xc4a47c);
+        m.look.jacket = tn(0x8c5828);
+        m.look.bottom = tn(0x2c2826);
+        m.look.hair = Hair::Bald;
+        m.look.hairC = tn(0xc9ccd2);
+        m.x = x;
+        m.gy = pathY(x) - 6.f;
+        m.s = 1.f;
+        m.facing = face;
+        m.moving = dt > 0.f;
+        m.phase = (x - 428.f) * .11f;
+        m.amp = .36f;
+        m.lean = .2f;
+        m.bow = t < 2.5f ? .3f : .12f;
+        m.cane = true;
+        m.caneC = tn(0x5a3a22);
+        m.z = 8.f;
+        buildWalking(m, v);
     }
+
+    // The very last leaf on the tree: hangs on the right branch (168, 212) until t = 9.0s,
+    // then detaches and drifts down to the ground (195, 304) at t = 14.0s.
+    const float branchX = 241.f, branchY = 137.f;
+    const float groundX = 240.f, groundY = 313.f;
+    const float u = clamp01((t - 9.0f) / 4.0f);
+
+    const float lx = (t < 9.0f)
+        ? branchX + std::sin(t * 2.2f) * 1.2f
+        : lerp(branchX, groundX, u) + (u < 1.f ? std::sin(u * 12.f) * 14.f * (1.f - u) : 0.f);
+    const float ly = (t < 9.0f)
+        ? branchY + std::cos(t * 2.2f) * 0.6f
+        : lerp(branchY, groundY, u * u * .55f + u * .45f);
+    const float rot = (t < 9.0f)
+        ? 0.45f + std::sin(t * 2.2f) * 0.12f
+        : (u < 1.f ? 0.45f + u * 9.5f : 0.35f);
+
+    const float sz = 5.2f; // original leaf size[cite: 11]
+    const float c = std::cos(rot), sn = std::sin(rot);
+    const Vec2 base[6] = {{-1, 0}, {-.45f, -.55f}, {.5f, -.5f}, {1, 0}, {.5f, .5f}, {-.45f, .55f}};
+    std::vector<Vec2> P;
+    for (const Vec2& b : base) P.push_back({lx + (b.x * c - b.y * sn) * sz, ly + (b.x * sn + b.y * c) * sz});
+
+    // z = 7.15f keeps it visible in both 2D and 3D right at the tree's branch depth
+    Pen pen(v, 7.15f, 1.f);
+    pen.poly(P, tn(0xd96b27));
+    pen.line({lx - c * sz * .9f, ly - sn * sz * .9f}, {lx + c * sz * .9f, ly + sn * sz * .9f}, tn(0x8a3d1c));
 }
 
 }  // namespace late
