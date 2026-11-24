@@ -7,7 +7,9 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <fstream>
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -376,7 +378,7 @@ void addBench(Mesh& mesh, const SceneLook& look) {
         const Color rust = mix(rgb(138, 83, 49), rgb(34, 28, 25), dim);
         const int patches = std::max(1, int(std::ceil(look.benchWear * 14.f)));
 
-    for (int b = 0; b < 3; ++b) {
+        for (int b = 0; b < 3; ++b) {
             const float slatY = 1.05f + .25f * float(b);
             for (int i = 0; i < patches; ++i) {
                 const int seed = (b + 5) * 113 + i * 37;
@@ -402,12 +404,12 @@ void addBench(Mesh& mesh, const SceneLook& look) {
 // Lamp head overhangs forward (+Z) so light illuminates the front of the bench
 constexpr Vec3 kLampBulbPos{4.33f, 3.26f, .58f};
 
-    float lampPowerAt(int scene, float sceneTime) {
+float lampPowerAt(int scene, float sceneTime) {
     const SceneLook& look = kScenes[size_t(scene)];
     float p = (look.lampOn || look.lampPower > 0.f) ? look.lampPower : 0.f;
     if (scene == 7) {
-       if (sceneTime >= 14.0f)     return 0.f;
-       if (sceneTime >= 13.0f) {
+        if (sceneTime >= 14.0f)     return 0.f;
+        if (sceneTime >= 13.0f) {
             float k = 1.f - (sceneTime - 13.0f) / 1.5f;
             return p * (k * k); // smooth cubic/quadratic ease-out to 0
         }
@@ -525,7 +527,7 @@ void addSky(Mesh& mesh, const SceneLook& look) {
               {40.f, 25.f, z}, {-40.f, 25.f, z},
               bottom, bottom, top, top, {0, 0, 1}, 1.0f);
 }
-// ---------- Unified Whole-Body 3D Character Builder (never breaks apart on turn/lean/scale) ----------
+
 // ---------- Stylized 3D Character Builder (matches reference model & stays whole in all scenes) ----------
 namespace fig3d {
 
@@ -897,6 +899,7 @@ inline void addSeated3D(Mesh& solid, Vec3 seatHipPos, float scale, const fig::Se
 }
 
 } // namespace fig3d
+
 void addSceneFigures3D(Mesh& solidMesh, Mesh& transparentMesh, int scene, float t) {
     auto mapX = [](float x) { return (x - 320.f) * 0.023f; };
 
@@ -1018,7 +1021,6 @@ void addSceneFigures3D(Mesh& solidMesh, Mesh& transparentMesh, int scene, float 
     };
 
     if (scene == 1) {
-        // Scene 1 (2nd scene): Teens seated closer together; boy lends earphone to girl and they listen together
         const float xb = 298.f;
         const float xg = 342.f;
         const float lendU = std::clamp(t / 2.6f, 0.f, 1.f);
@@ -1078,8 +1080,8 @@ void addSceneFigures3D(Mesh& solidMesh, Mesh& transparentMesh, int scene, float 
         fig3d::addWalking3D(solidMesh, transparentMesh, {jx, 0.026f, -1.35f}, 1.57f, 0.68f, jw);
         return;
     }
-   if (scene == 2) {
-        // Scene 2 (3rd scene): Smoothed pacing (no rapid frame flicker)
+
+    if (scene == 2) {
         const float xbSeat = 294.f;
         const float xgSeat = 346.f;
         const float tWalk = 3.2f;
@@ -1089,7 +1091,7 @@ void addSceneFigures3D(Mesh& solidMesh, Mesh& transparentMesh, int scene, float 
         sg.look = girlLook(fig3d::rgba32(0xf2, 0xe9, 0xe4), fig::Hair::Bun);
         sg.turn = arrived ? -0.50f : -0.75f;
         sg.smile = true;
-        sg.open = std::sin(t * 1.8f) > 0.45f; // gentle natural speech cadence
+        sg.open = std::sin(t * 1.8f) > 0.45f;
         if (arrived) {
             sg.hasHandL = true;
             sg.handL = {322.f, 263.f};
@@ -1127,7 +1129,6 @@ void addSceneFigures3D(Mesh& solidMesh, Mesh& transparentMesh, int scene, float 
     }
 
     if (scene == 3) {
-        // 4th scene: Celebratory afternoon with bouquet & floating petals
         const float xb = 286.f;
         const float xg = 354.f;
         fig::SeatedPose sb, sg;
@@ -1165,7 +1166,6 @@ void addSceneFigures3D(Mesh& solidMesh, Mesh& transparentMesh, int scene, float 
     }
 
     if (scene == 4) {
-        // 5th scene: Young parents watching & clapping while toddler plays with bouncing ball
         const float xb = 288.f;
         const float xg = 352.f;
         const float toddlerWave = std::sin(t * 0.9f);
@@ -1199,7 +1199,6 @@ void addSceneFigures3D(Mesh& solidMesh, Mesh& transparentMesh, int scene, float 
     }
 
     if (scene == 5) {
-        // 6th scene (restored): Adult daughter walks along path, faces parents & waves, parents wave back, then she sits next to them
         const float xb = 278.f;
         const float xg = 326.f;
         const float xdSeat = 374.f;
@@ -1259,7 +1258,6 @@ void addSceneFigures3D(Mesh& solidMesh, Mesh& transparentMesh, int scene, float 
     }
 
     if (scene == 6) {
-        // Scene 6 (7th scene): Final moments together holding hands, old lady slowly fades away
         const float xb = 294.f;
         const float xg = 346.f;
         fig::SeatedPose sb, sg;
@@ -1277,10 +1275,8 @@ void addSceneFigures3D(Mesh& solidMesh, Mesh& transparentMesh, int scene, float 
         sb.handR = {318.f, 265.f};
         sg.handL = {322.f, 265.f};
 
-        // Old man remains solid
         fig3d::addSeated3D(solidMesh, {mapX(xb), 0.92f, 0.04f}, 0.95f, sb, 1.0f);
 
-        // Old lady stays solid for first 4.5s, then fades very slowly over 8.5s
         float ladyAlpha = 1.0f;
         if (t > 4.5f) {
             float u = std::clamp((t - 4.5f) / 8.5f, 0.f, 1.f);
@@ -1295,7 +1291,6 @@ void addSceneFigures3D(Mesh& solidMesh, Mesh& transparentMesh, int scene, float 
     }
 
     if (scene == 7) {
-        // Scene 7 (8th scene - unchanged): Alone in old age, old man walks slowly to bench with cane and sits quietly
         fig::Look oldL = boyLook(fig3d::rgba32(0x49, 0x50, 0x57), fig3d::rgba32(0x21, 0x25, 0x29));
         oldL.hairC = fig3d::rgba32(0xe9, 0xec, 0xef);
         if (t < 5.5f) {
@@ -1308,20 +1303,19 @@ void addSceneFigures3D(Mesh& solidMesh, Mesh& transparentMesh, int scene, float 
         } else {
             fig::SeatedPose sp; sp.look = oldL; sp.lean = 0.14f; sp.turn = 0.25f; sp.smile = true;
             fig3d::addSeated3D(solidMesh, {mapX(300.f), 0.92f, 0.04f}, 0.92f, sp);
-            // Cane resting against bench beside him
             solidMesh.cylinder({mapX(282.f), 0.03f, 0.36f}, {mapX(285.f), 0.88f, 0.15f}, 0.016f, 0.016f, fig3d::toCol(fig3d::rgba32(0x6f, 0x4e, 0x37)), 10);
         }
         return;
     }
 }
+
 void addSceneryDetails(Mesh& solid, Mesh& trans, const SceneLook& look, int scene, float t) {
     const float dim = look.ambient < .3f ? .58f : 0.f;
 
-    // 1. Background shrubs placed cleanly behind the fence (z <= -6.3f so none fuse with the fence at z = -5.2f)
     const Color bushBase = mix(look.leaves, look.ground, 0.35f);
     for (int i = 0; i < 14; ++i) {
         float bx = -11.5f + float(i) * 1.75f + (random01(i * 17) - 0.5f) * 0.5f;
-        if (bx > -3.1f && bx < 3.1f) continue; // keep center bench view open
+        if (bx > -3.1f && bx < 3.1f) continue;
         float bz = -6.35f - random01(i * 23) * 2.1f;
         float br = 0.42f + 0.26f * random01(i * 31);
         Color bc = mix(bushBase, rgb(38, 78, 42), 0.25f * random01(i * 41));
@@ -1329,7 +1323,6 @@ void addSceneryDetails(Mesh& solid, Mesh& trans, const SceneLook& look, int scen
         solid.sphere({bx + br * 0.58f, br * 0.48f, bz + 0.15f}, br * 0.72f, bc, 10, 8);
     }
 
-    // 2. Taller, thicker rustic wooden park fence behind the bench area
     const Color fenceWood = mix(rgb(118, 86, 58), rgb(24, 22, 20), dim);
     for (float fx = -10.0f; fx <= 10.0f; fx += 2.0f) {
         solid.cylinder({fx, 0.f, -5.2f}, {fx, 0.98f, -5.2f}, 0.072f, 0.065f, fenceWood, 8);
@@ -1340,12 +1333,10 @@ void addSceneryDetails(Mesh& solid, Mesh& trans, const SceneLook& look, int scen
         }
     }
 
-    // 3. Park litter bin beside the lamp post
     const Color binCol = mix(rgb(44, 82, 66), rgb(14, 20, 18), dim);
     solid.cylinder({5.35f, 0.02f, -0.10f}, {5.35f, 0.68f, -0.10f}, 0.19f, 0.22f, binCol, 14);
     solid.cylinder({5.35f, 0.68f, -0.10f}, {5.35f, 0.72f, -0.10f}, 0.23f, 0.23f, mix(binCol, rgb(20, 24, 22), 0.4f), 14);
 
-    // 4. Natural, continuous slow-drifting clouds (no snapping/wrapping inside camera view)
     if (scene <= 5 || scene == 8) {
         Color cloudCol = mix(rgb(255, 255, 255), look.skyBottom, 0.22f);
         static const float baseX[4] = { -7.5f, -2.2f, 3.4f, 8.8f };
@@ -1362,7 +1353,6 @@ void addSceneryDetails(Mesh& solid, Mesh& trans, const SceneLook& look, int scen
         }
     }
 
-    // 5. Warm glowing fireflies in dusk/night scenes (scenes 5..7)
     if (scene >= 5 && scene <= 7) {
         for (int f = 0; f < 14; ++f) {
             float fx = -5.5f + 11.f * random01(f * 37 + 9) + 0.35f * std::sin(t * 1.3f + f);
@@ -1373,6 +1363,7 @@ void addSceneryDetails(Mesh& solid, Mesh& trans, const SceneLook& look, int scen
         }
     }
 }
+
 std::vector<Vertex> buildScene3D(int scene, float t = 2.5f) {
     const SceneLook& look = kScenes[size_t(scene)];
     Mesh solidMesh, transparentMesh;
@@ -1385,7 +1376,6 @@ std::vector<Vertex> buildScene3D(int scene, float t = 2.5f) {
     addBench(solidMesh, look);
     solidMesh.sphere(sunPositionFor(scene), .38f, look.sun, 48, 32, 1.0f);
 
-    // Draw opaque character parts first, then translucent fading shapes last
     addSceneFigures3D(solidMesh, transparentMesh, scene, t);
     addSceneryDetails(solidMesh, transparentMesh, look, scene, t);
     solidMesh.vertices.insert(solidMesh.vertices.end(),
@@ -1443,7 +1433,7 @@ void renderFrame(GLFWwindow* window, GLuint program, GLuint vao, size_t vertexCo
     float darknessFade = 1.f;
     if (scene == 7 && sceneTime >= 13.0f) {
         float u = std::clamp((sceneTime - 13.0f) / 1.5f, 0.f, 1.f);
-        darknessFade = 1.f - (u * u * (3.f - 2.f * u)); // smoothstep 1 -> 0 over 1.5s
+        darknessFade = 1.f - (u * u * (3.f - 2.f * u));
     }
     const Color sky = kScenes[size_t(scene)].sky;
     glClearColor(sky.r * darknessFade, sky.g * darknessFade, sky.b * darknessFade, 1.f);
@@ -1592,9 +1582,120 @@ void updateWindowTitle(GLFWwindow* window, int scene) {
     glfwSetWindowTitle(window, title.c_str());
 }
 
+// Exports numbered 3D JSON frames to <prefix>_NNNN.json using film.cpp's timeline,
+// leaving gaps during transition intervals so Blender can render smooth fades.
+bool exportFrames3D(const std::string& prefix, int fps) {
+    constexpr float kSceneLen[8] = { 11.f, 11.5f, 12.f, 12.f, 13.f, 14.f, 14.5f, 16.f };
+    constexpr float kGustLen[7]  = { 2.8f, 2.8f, 3.0f, 3.0f, 3.2f, 3.4f, 3.8f };
+
+    float totalLen = 0.f;
+    for (float d : kSceneLen) totalLen += d;
+    for (float d : kGustLen)  totalLen += d;
+
+    const int totalFrames = int(std::ceil(totalLen * float(fps)));
+    const Vec3 target{-0.25f, 1.45f, -0.35f};
+
+    std::cout << "Exporting 3D frames (" << totalFrames << " total timeline frames at "
+              << fps << " fps)...\n";
+
+    int exported = 0;
+    for (int frameIdx = 0; frameIdx < totalFrames; ++frameIdx) {
+        const float T = float(frameIdx) / float(fps);
+
+        bool inTransition = false;
+        int scene = 7;
+        float sceneTime = kSceneLen[7];
+        float start = 0.f;
+        for (int i = 0; i < 8; ++i) {
+            if (T < start + kSceneLen[i]) {
+                scene = i;
+                sceneTime = T - start;
+                break;
+            }
+            start += kSceneLen[i];
+            if (i == 7) break;
+            if (T < start + kGustLen[i]) {
+                inTransition = true;
+                break;
+            }
+            start += kGustLen[i];
+        }
+
+        if (inTransition) continue;
+
+        std::vector<Vertex> verts = buildScene3D(scene, sceneTime);
+        const SceneLook& look = kScenes[size_t(scene)];
+
+        float darknessFade = 1.f;
+        if (scene == 7 && sceneTime >= 13.0f) {
+            float u = std::clamp((sceneTime - 13.0f) / 1.5f, 0.f, 1.f);
+            darknessFade = 1.f - (u * u * (3.f - 2.f * u));
+        }
+
+        const float lampPower = lampPowerAt(scene, sceneTime);
+        const float ambient = look.ambient * (0.04f + 0.96f * darknessFade);
+        const Vec3 sunDir = normalized(sunPositionFor(scene) - target + Vec3{0.f, 0.f, 9.5f});
+
+        char numBuf[32];
+        std::snprintf(numBuf, sizeof(numBuf), "_%04d.json", frameIdx);
+        const std::string outPath = prefix + numBuf;
+
+        std::ofstream out(outPath);
+        if (!out) {
+            std::cerr << "Failed to open " << outPath << " for writing\n";
+            return false;
+        }
+
+        out << std::fixed << std::setprecision(4);
+        out << "{\n"
+            << "  \"width\": 1280,\n"
+            << "  \"height\": 720,\n"
+            << "  \"scene\": " << scene << ",\n"
+            << "  \"t\": " << sceneTime << ",\n"
+            << "  \"darknessFade\": " << darknessFade << ",\n"
+            << "  \"skyColor\": [" << look.sky.r * darknessFade << ", "
+                                   << look.sky.g * darknessFade << ", "
+                                   << look.sky.b * darknessFade << "],\n"
+            << "  \"sunDir\": [" << sunDir.x << ", " << sunDir.y << ", " << sunDir.z << "],\n"
+            << "  \"lampPos\": [" << kLampBulbPos.x << ", " << kLampBulbPos.y << ", " << kLampBulbPos.z << "],\n"
+            << "  \"ambient\": " << ambient << ",\n"
+            << "  \"sunlight\": " << look.sunlight << ",\n"
+            << "  \"lampPower\": " << lampPower << ",\n"
+            << "  \"vertexCount\": " << verts.size() << ",\n"
+            << "  \"vertices\": [\n";
+
+        for (size_t i = 0; i < verts.size(); ++i) {
+            const Vertex& v = verts[i];
+            out << "    [" << v.position.x << "," << v.position.y << "," << v.position.z << ","
+                << v.normal.x << "," << v.normal.y << "," << v.normal.z << ","
+                << v.color.r << "," << v.color.g << "," << v.color.b << "," << v.color.a << ","
+                << v.emissive << "]" << (i + 1 < verts.size() ? ",\n" : "\n");
+        }
+        out << "  ]\n}\n";
+        ++exported;
+
+        if (exported % 50 == 0) {
+            std::cout << "  wrote " << exported << " scene frames (up to f_"
+                      << std::setw(4) << std::setfill('0') << frameIdx << ".json)\n";
+        }
+    }
+    std::cout << "Done. Exported " << exported << " 3D scene frames.\n";
+    return true;
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
+    if (argc > 1 && std::string(argv[1]) == "--frames3d") {
+        if (argc < 3 || argc > 4) {
+            std::cerr << "Usage: bench3d --frames3d <output_prefix> [fps]\n";
+            return 1;
+        }
+        const std::string prefix = argv[2];
+        const int fps = (argc == 4) ? std::stoi(argv[3]) : 24;
+        return exportFrames3D(prefix, fps) ? 0 : 1;
+    }
+
     int scene = 0;
     std::string capturePath;
     const bool capture = argc > 1 && std::string(argv[1]) == "--capture";
@@ -1614,7 +1715,7 @@ int main(int argc, char** argv) {
         try {
             scene = std::stoi(argv[1]);
         } catch (const std::exception&) {
-            std::cerr << "Usage: bench3d [scene 0-7]\n";
+            std::cerr << "Usage: bench3d [scene 0-7] | --frames3d <prefix> [fps]\n";
             return 1;
         }
     }

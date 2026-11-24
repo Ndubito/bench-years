@@ -10,3 +10,5 @@ out/*.json
 out/*.png
 *.mp4
 *.log
+
+out/

@@ -16,9 +16,14 @@ COLOR_ORDER = "ABGR"
 Z_STEP      = 0.01
 LINE_WIDTH  = 1.0                     # "line" shapes are drawn as quads this many pixels wide
 
-SKIP_FIRST    = 0       # skip this many frames from the start (to time a busier part of the animation)
-MAX_FRAMES    = 10      # 10 = timing test (output goes to OUT_DIR\test). Set to None for the full render.
+SKIP_FIRST    = 0      
+MAX_FRAMES    = None
 SKIP_EXISTING = True    # full render only: don't re-render PNGs that already exist (resume after stopping)
+
+ONE_MESH_PER_FRAME    = False   # True = all opaque shapes in ONE mesh with material slots (faster in Blender)
+                                #        False = one object per shape (original behavior)
+RESOLUTION_PERCENTAGE = 100     # 100 = size from the JSON (640x360); 200 = 1280x720.
+                                # Before using 200, check tools/assemble_film.sh can mix 1280x720 with the C++ images.
 # ----------------------------------------
 
 
@@ -82,6 +87,32 @@ def make_polys(name, polys, z, mat, H):
     mesh.materials.append(mat)
     return obj
 
+def make_merged(name, items, H):
+    """ONE mesh object for many shapes. Each shape keeps its own z; faces get the material slot of their color.
+    items = [(shape_index, shape_dict, polygons), ...]"""
+    verts, faces, face_slot = [], [], []
+    slots = {}                                   # rgba -> material slot index
+    for i, s, polys in items:
+        z = s["z"] * Z_STEP + i * 1e-5
+        if s["rgba"] not in slots:
+            slots[s["rgba"]] = len(slots)
+        slot = slots[s["rgba"]]
+        for pts in polys:
+            base = len(verts)
+            verts += [(x, H - y, z) for x, y in pts]      # flip y
+            faces.append(list(range(base, base + len(pts))))
+            face_slot.append(slot)
+    mesh = bpy.data.meshes.new(name)
+    mesh.from_pydata(verts, [], faces)
+    mesh.update()
+    for rgba, _ in sorted(slots.items(), key=lambda kv: kv[1]):
+        mesh.materials.append(get_material(rgba))
+    for poly, slot in zip(mesh.polygons, face_slot):
+        poly.material_index = slot
+    obj = bpy.data.objects.new(name, mesh)
+    bpy.context.collection.objects.link(obj)
+    return obj
+
 def circle_pts(cx, cy, r, n=64):
     return [(cx + r * math.cos(2 * math.pi * i / n),
              cy + r * math.sin(2 * math.pi * i / n)) for i in range(n)]
@@ -109,6 +140,30 @@ def strip_quads(pts, w0, w1):
         ])
     return quads
 
+def shape_polys(i, s):
+    """The polygons (lists of (x, y) pixel points) that make up one shape, or None if nothing can be drawn."""
+    kind = s["kind"]
+    if kind == "poly":
+        return [s["pts"]]
+    if kind == "disc":
+        cx, cy = s["pts"][0]
+        return [circle_pts(cx, cy, s["r"])]
+    if kind in ("strip", "line"):
+        pts = s["pts"]
+        if len(pts) < 2:
+            print(f"[warn] {kind} (shape {i}) has fewer than 2 points, skipped")
+            return None
+        if kind == "strip":
+            quads = strip_quads(pts, s.get("w0", 0.0), s.get("w1", 0.0))
+        else:
+            quads = strip_quads(pts, LINE_WIDTH, LINE_WIDTH)
+        if not quads:
+            print(f"[warn] {kind} (shape {i}) produced no geometry (zero length?), skipped")
+            return None
+        return quads
+    print(f"[warn] unknown kind '{kind}' (shape {i}) skipped")
+    return None
+
 def clear_scene():
     """Remove the previous frame completely: objects first, then the datablocks they used.
     Removing only the objects leaves their meshes/materials/cameras behind (memory grows every frame)."""
@@ -123,30 +178,25 @@ def build(data):
 
     clear_scene()
 
+    items = []
     for i, s in enumerate(data["shapes"]):
-        kind = s["kind"]
+        polys = shape_polys(i, s)
+        if polys:
+            items.append((i, s, polys))
+
+    if ONE_MESH_PER_FRAME:
+        # Opaque shapes go into one mesh. Translucent ones stay separate objects: Blender sorts
+        # transparency per object, so merging them would blend in the wrong order.
+        merged   = [it for it in items if unpack(it[1]["rgba"])[3] >= 0.999]
+        separate = [it for it in items if unpack(it[1]["rgba"])[3] < 0.999]
+        if merged:
+            make_merged("frame", merged, H)
+    else:
+        separate = items
+
+    for i, s, polys in separate:
         z = s["z"] * Z_STEP + i * 1e-5
-        mat = get_material(s["rgba"])
-        if kind == "poly":
-            make_polys(f"poly_{i}", [s["pts"]], z, mat, H)
-        elif kind == "disc":
-            cx, cy = s["pts"][0]
-            make_polys(f"disc_{i}", [circle_pts(cx, cy, s["r"])], z, mat, H)
-        elif kind in ("strip", "line"):
-            pts = s["pts"]
-            if len(pts) < 2:
-                print(f"[warn] {kind} (shape {i}) has fewer than 2 points, skipped")
-                continue
-            if kind == "strip":
-                quads = strip_quads(pts, s.get("w0", 0.0), s.get("w1", 0.0))
-            else:
-                quads = strip_quads(pts, LINE_WIDTH, LINE_WIDTH)
-            if not quads:
-                print(f"[warn] {kind} (shape {i}) produced no geometry (zero length?), skipped")
-                continue
-            make_polys(f"{kind}_{i}", quads, z, mat, H)
-        else:
-            print(f"[warn] unknown kind '{kind}' (shape {i}) skipped")
+        make_polys(f"{s['kind']}_{i}", polys, z, get_material(s["rgba"]), H)
 
     cam_data = bpy.data.cameras.new("cam")
     cam_data.type = 'ORTHO'
@@ -160,7 +210,7 @@ def build(data):
     sc = bpy.context.scene
     sc.camera = cam
     r = sc.render
-    r.resolution_x, r.resolution_y, r.resolution_percentage = W, H, 100
+    r.resolution_x, r.resolution_y, r.resolution_percentage = W, H, RESOLUTION_PERCENTAGE
     r.image_settings.file_format = 'PNG'
     for eng in ("BLENDER_EEVEE_NEXT", "BLENDER_EEVEE", "CYCLES"):
         try:
@@ -211,6 +261,7 @@ if not all_frames:
 
 print(f"Found {len(all_frames)} JSON frames, numbers {all_frames[0][0]}-{all_frames[-1][0]}")
 print(f"Missing numbers (no JSON, e.g. gust frames): {fmt_gaps([n for n, _, _ in all_frames])}")
+print(f"Settings: ONE_MESH_PER_FRAME={ONE_MESH_PER_FRAME}, RESOLUTION_PERCENTAGE={RESOLUTION_PERCENTAGE}, MAX_FRAMES={MAX_FRAMES}")
 
 frames = all_frames[SKIP_FIRST:]
 if MAX_FRAMES is not None:
@@ -226,7 +277,7 @@ print(f"Output folder: {out_dir}")
 times, failed, skipped = [], [], 0
 for k, (num, digits, path) in enumerate(frames):
     out_png = os.path.join(out_dir, f"f_{digits}.png")    # same number as f_NNNN.json
-    # resume only on full runs, so repeating the timing test always renders and times real frames
+
     if SKIP_EXISTING and not test_run and os.path.exists(out_png):
         skipped += 1
         continue
@@ -248,7 +299,11 @@ for k, (num, digits, path) in enumerate(frames):
 if times:
     first, rest = times[0], times[1:]
     avg = sum(rest) / len(rest) if rest else first
+    rr = bpy.context.scene.render
     print("---- timing ----")
+    print(f"settings        : ONE_MESH_PER_FRAME={ONE_MESH_PER_FRAME}, engine={rr.engine}, "
+          f"output {rr.resolution_x * rr.resolution_percentage // 100}x{rr.resolution_y * rr.resolution_percentage // 100}, "
+          f"headless={bpy.app.background}")
     print(f"frames rendered : {len(times)}  (skipped existing: {skipped}, failed: {len(failed)})")
     print(f"first frame     : {first:.2f}s  (includes startup)")
     print(f"average, others : {avg:.2f}s/frame")
